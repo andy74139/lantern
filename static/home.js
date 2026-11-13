@@ -247,7 +247,7 @@ function renderPreview() {
 }
 
 // ---------- 待辦：分頁、清單、搜尋 ----------
-const VIEWS = [['focus', '今天'], ['upcoming', '接下來'], ['all', '全部'], ['done', '已完成']];
+const VIEWS = [['focus', '今天'], ['upcoming', '接下來'], ['all', '全部'], ['done', '已完成'], ['board', '看板']];
 const lists = () => (H.todos && H.todos.lists) || [];
 const effList = t => t.list_id || (lists()[0] || {}).id || '';
 const listTitle = id => (lists().find(x => x.id === id) || {}).title || '';
@@ -277,7 +277,7 @@ function todoHTML(t, showDate) {
   if (t.source && t.source.type === 'recording') meta.push(`<button class="link-s" data-act="rec-open" data-id="${esc(t.source.id)}" title="${esc(t.source.title || '')}">🎙 錄音</button>`);
   if (H.todos.sync.connected && t.dirty) meta.push('<span class="pend" title="還沒同步到 Google Tasks">↑ 待同步</span>');
   const note = t.notes && !(t.source && t.notes.startsWith('來自錄音')) ? t.notes.split('\n')[0] : '';
-  return `<li class="td ${done ? 'done' : ''} ${t.pinned ? 'pinned' : ''}">
+  return `<li class="td ${done ? 'done' : ''} ${t.pinned ? 'pinned' : ''}" ${done ? '' : `draggable="true" data-id="${esc(t.id)}"`}>
     <button class="td-check" data-act="todo-toggle" data-id="${esc(t.id)}" role="checkbox" aria-checked="${done}" aria-label="${done ? '取消完成' : '完成'}：${esc(t.title)}">${done ? '☑' : '☐'}</button>
     <div class="td-main" data-act="todo-edit" data-id="${esc(t.id)}">
       <div class="td-title">${t.pinned ? '<span class="pin" aria-label="已釘選">★</span>' : ''}${esc(t.title)}</div>
@@ -293,7 +293,7 @@ function todoHTML(t, showDate) {
 }
 
 function renderTodos() {
-  if (!H.todos) return;
+  if (!H.todos || H.dragging) return;                // 拖拉中不要重畫，免得把正在拖的卡片換掉
   const td = ymd(new Date());
   if (H.listFilter && !lists().some(L => L.id === H.listFilter)) H.listFilter = '';
   const all = H.todos.todos.filter(t => !H.listFilter || effList(t) === H.listFilter);
@@ -301,7 +301,8 @@ function renderTodos() {
   const doneL = all.filter(t => t.status === 'done').sort((a, b) => b.completed_at - a.completed_at);
   const overdue = open.filter(t => t.due_date && t.due_date < td).sort(byOrder);
   const counts = { focus: open.filter(t => t.due_date && t.due_date <= td).length,
-                   upcoming: open.filter(t => t.due_date && t.due_date > td).length, all: open.length, done: doneL.length };
+                   upcoming: open.filter(t => t.due_date && t.due_date > td).length, all: open.length, done: doneL.length,
+                   board: H.todos.todos.filter(t => t.status === 'open').length };
 
   setHTML($('#todo-tabs'), VIEWS.map(([v, l]) => `<button class="tab ${H.view === v && !H.q ? 'on' : ''}" role="tab" aria-selected="${H.view === v}" data-act="todo-view" data-view="${v}">${l}<span class="n">${counts[v] || ''}</span></button>`).join(''));
   setHTML($('#todo-lists'), lists().length > 1
@@ -313,8 +314,15 @@ function renderTodos() {
   if (sel.dataset.opts !== opts) { sel.innerHTML = opts; sel.dataset.opts = opts; }
   if (H.listFilter && document.activeElement !== sel) sel.value = H.listFilter;
 
-  let groups = [], empty = '';
   const q = H.q.trim().toLowerCase();
+  if (H.view === 'board' && !q) {
+    setHTML($('#todo-lists'), '');
+    $('#todo-add-list').hidden = true;
+    setHTML($('#todo-list'), boardHTML());
+    finishTodoRender(open, overdue, td);
+    return;
+  }
+  let groups = [], empty = '';
   if (q) {
     const hits = all.filter(t => (t.title + ' ' + (t.notes || '')).toLowerCase().includes(q)).sort(byOrder);
     groups = [['search', `搜尋「${H.q.trim()}」`, hits, true]];
@@ -339,12 +347,15 @@ function renderTodos() {
     empty = '沒有待辦事項。在上面輸入一件事，按 Enter 就會加入。';
   }
   groups = groups.filter(g => g[2].length);
-  let h = groups.map(([g, label, items, showDate]) => `<div class="td-group g-${g}">
+  let h = groups.map(([g, label, items, showDate]) => `<div class="td-group g-${g}" ${['today', 'tomorrow', 'none'].includes(g) && !q ? `data-drop="${g}"` : ''}>
       <h3>${esc(label)}<span class="muted"> ${items.length}</span>
         ${g === 'overdue' ? '<button class="btn link" data-act="todo-overdue-today">全部移到今天</button>' : ''}</h3>
       <ul>${items.map(t => todoHTML(t, showDate)).join('')}</ul></div>`).join('');
   setHTML($('#todo-list'), h || `<p class="muted small empty">${empty}</p>`);
+  finishTodoRender(open, overdue, td);
+}
 
+function finishTodoRender(open, overdue, td) {
   const tday = open.filter(t => t.due_date === td).length;
   $('#todo-count').textContent = `${open.length} 項` + (tday ? `・今天 ${tday}` : '') + (overdue.length ? `・過期 ${overdue.length}` : '');
   const urgent = tday + overdue.length;
@@ -911,3 +922,285 @@ document.addEventListener('click', async ev => {
   setInterval(() => { if (!document.hidden) check(); }, 60000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
 })();
+
+// ---------- 知識庫 ----------
+const KB = { st: null, cur: null, busy: false };
+const kbWhere = s => s.where || '';
+
+function kbAnswerHTML(a) {
+  // 回答裡的 [1]、[2] 變成可以點的出處
+  let body = md(a.answer || '');
+  body = body.replace(/\[(\d{1,2})\]/g, (m, n) => +n >= 1 && +n <= a.sources.length
+    ? `<button class="cite" data-act="kb-cite" data-n="${n}" title="${esc(a.sources[n - 1].title + '・' + kbWhere(a.sources[n - 1]))}">${n}</button>` : m);
+  const used = new Set([...(a.answer || '').matchAll(/\[(\d{1,2})\]/g)].map(x => +x[1]));
+  const src = a.sources.map((s, i) => `<li id="kb-s${i + 1}" class="${used.has(i + 1) ? 'used' : ''}">
+      <button class="kb-s-head" data-act="kb-open" data-i="${i}"><span class="cite">${i + 1}</span>
+        <span class="kb-s-title">${s.source === 'recording' ? '🎙 ' : '📄 '}${esc(s.title)}</span><span class="muted small">${esc(kbWhere(s))}</span></button>
+      <div class="kb-s-text">${esc(s.text.slice(0, 220))}${s.text.length > 220 ? '…' : ''}</div></li>`).join('');
+  return `<div class="kb-a"><div class="kb-q-echo">${esc(a.q)}<span class="muted small">・${a.model === 'claude' ? 'Claude' : '本機模型'}${a.at ? '・' + rel(a.at * 1000) : ''}</span></div>
+    <div class="md">${body}</div>
+    ${a.sources.length ? `<div class="kb-sources"><div class="muted small">出處（點一下開啟）</div><ol>${src}</ol></div>` : ''}</div>`;
+}
+
+function renderKb() {
+  const st = KB.st;
+  if (!st) return;
+  const idx = st.state === 'indexing' ? `・建立索引中 ${st.done}/${st.total}${st.current ? '（' + st.current.replace(/^rec:/, '錄音 ') + '）' : ''}`
+    : st.state === 'error' ? '・索引失敗' : '';
+  $('#kb-meta').textContent = `錄音 ${st.recordings}・文件 ${st.files}・共 ${st.chunks} 段${idx}`;
+  if (!$('#kb-model').dataset.init) { $('#kb-model').value = st.answer_model === 'claude' ? 'claude' : 'local'; $('#kb-model').dataset.init = '1'; }
+  const folders = st.folders.length ? st.folders.map(f => `<li><span class="kb-folder" title="${esc(f)}">📁 ${esc(f.replace(/^\/Users\/[^/]+/, '~'))}</span>
+      <button class="icon" data-act="kb-folder-remove" data-path="${esc(f)}" title="不再收錄這個資料夾" aria-label="移除 ${esc(f)}">✕</button></li>`).join('')
+    : '<li class="muted small">還沒有加入資料夾；錄音會自動收錄。</li>';
+  const errs = st.errors.length ? `<p class="muted small">有 ${st.errors.length} 個檔案讀不到（例如加密的 PDF）：${st.errors.slice(0, 3).map(e => esc(e.title)).join('、')}${st.errors.length > 3 ? '…' : ''}</p>` : '';
+  const hist = (st.history || []).map(h => `<li><button class="link-s" data-act="kb-hist" data-id="${h.id}">${esc(h.q)}</button><span class="muted small">・${rel(h.at * 1000)}</span></li>`).join('');
+  setHTML($('#kb-src-body'), `
+    <div class="kb-src-grid">
+      <div><h4>收錄的資料夾</h4><ul class="kb-folders">${folders}</ul>
+        <div class="row"><button class="btn sm" data-act="kb-folder-add">＋ 加入資料夾…</button>
+          <button class="btn sm" data-act="kb-reindex" ${st.state === 'indexing' ? 'disabled' : ''}>重新掃描</button></div>
+        <p class="muted small">支援 PDF、Word、PowerPoint、Markdown、文字檔、網頁。索引只存在這台電腦，每 10 分鐘自動更新。</p>
+        ${st.state === 'error' ? `<p class="small" style="color:var(--bad)">${esc(st.error || '')}</p>` : ''}${errs}</div>
+      <div><h4>最近的問題</h4><ul class="kb-hist">${hist || '<li class="muted small">還沒有問過問題。</li>'}</ul></div>
+    </div>`);
+}
+
+async function loadKb() { KB.st = await api('/api/kb'); renderKb(); }
+
+async function kbAsk() {
+  const q = $('#kb-q').value.trim();
+  if (!q || KB.busy) return;
+  const model = $('#kb-model').value;
+  KB.busy = true; $('#kb-send').disabled = true; $('#kb-send').textContent = '思考中…';
+  setHTML($('#kb-answer'), `<div class="kb-a"><div class="kb-q-echo">${esc(q)}</div><p class="muted">${model === 'claude' ? '找到相關資料後交給 Claude 回答，大約 10～30 秒…' : '用本機模型回答中…'}</p></div>`);
+  try {
+    KB.cur = await api('/api/kb/ask', { q, model });
+    setHTML($('#kb-answer'), kbAnswerHTML(KB.cur));
+    safe(loadKb);
+  } catch (e) {
+    setHTML($('#kb-answer'), `<div class="kb-a"><div class="kb-q-echo">${esc(q)}</div><p style="color:var(--bad)">${esc(e.message)}</p></div>`);
+  } finally {
+    KB.busy = false; $('#kb-send').disabled = false; $('#kb-send').textContent = '詢問';
+  }
+}
+
+async function kbOpen(s) {
+  if (s.source === 'recording') {
+    const id = s.ref.replace(/^rec:/, '');
+    await openRecording(id, s.loc && s.loc.t != null ? 'transcript' : 'summary');
+    if (s.loc && s.loc.t != null) {
+      const a = $('#rec-audio');
+      if (a) { const go = () => { a.currentTime = s.loc.t; }; a.readyState >= 1 ? go() : a.addEventListener('loadedmetadata', go, { once: true }); }
+      const seg = [...document.querySelectorAll('#rec-pane .seg .ts')].find(b => +b.dataset.t >= s.loc.t - 0.5);
+      if (seg) { seg.closest('.seg').classList.add('hl'); seg.scrollIntoView({ block: 'center' }); }
+    }
+  } else {
+    try { await api(`/api/kb/open/${s.doc_id}`, {}); toast('已用預設的 App 開啟' + (s.where ? `，請翻到${s.where}` : '')); }
+    catch (e) { toast('開不了這個檔案（可能已移動或刪除）', true); }
+  }
+}
+
+safe(loadKb);
+setInterval(() => { if (!document.hidden) safe(loadKb); }, 10000);
+$('#kb-form').addEventListener('submit', e => { e.preventDefault(); kbAsk(); });
+$('#kb-q').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); kbAsk(); } });
+$('#kb-model').addEventListener('change', e => api('/api/kb/model', { model: e.target.value }).catch(() => {}));
+document.addEventListener('click', async ev => {
+  const el = ev.target.closest('[data-act^="kb-"]');
+  if (!el) return;
+  const d = el.dataset;
+  switch (d.act) {
+    case 'kb-cite': { const li = document.getElementById('kb-s' + d.n); if (li) { li.classList.add('flash'); li.scrollIntoView({ block: 'nearest' }); setTimeout(() => li.classList.remove('flash'), 1200); } break; }
+    case 'kb-open': kbOpen(KB.cur.sources[+d.i]); break;
+    case 'kb-hist': { const h = (KB.st.history || []).find(x => x.id === +d.id); if (h) { KB.cur = h; setHTML($('#kb-answer'), kbAnswerHTML(h)); $('#kb-src').open = false; } break; }
+    case 'kb-reindex': try { KB.st = { ...KB.st, ...(await api('/api/kb/reindex', {})) }; renderKb(); toast('開始重新掃描'); } catch (e) { toast(e.message, true); } break;
+    case 'kb-folder-add':
+      try {
+        const r = await api('/api/pick', { kind: 'folder' });
+        if (!r.path) break;
+        KB.st = { ...KB.st, ...(await api('/api/kb/folders/add', { path: r.path })) }; renderKb();
+        toast('已加入，開始建立索引（檔案多的話要幾分鐘）');
+      } catch (e) { toast(e.message, true); }
+      break;
+    case 'kb-folder-remove':
+      if (!await ask('不再收錄這個資料夾？', `${d.path}\n\n只會從知識庫移除，不會刪除你的檔案。`, '移除')) break;
+      try { KB.st = { ...KB.st, ...(await api('/api/kb/folders/remove', { path: d.path })) }; renderKb(); } catch (e) { toast(e.message, true); }
+      break;
+  }
+});
+
+// ---------- 待辦看板：每個 Google Tasks 清單一欄，卡片可以拖拉 ----------
+const sortKey = t => t.sort ?? t.created_at;
+
+function cardHTML(t, td) {
+  const late = t.due_date && t.due_date < td;
+  const meta = [];
+  if (t.due_date) meta.push(`<span class="${late ? 'late' : ''}">📅 ${dueLabel(t)}</span>`);
+  if (t.repeat) meta.push(`<span>↻ ${REPEAT_LABEL[t.repeat]}</span>`);
+  if (t.source && t.source.type === 'recording') meta.push(`<button class="link-s" data-act="rec-open" data-id="${esc(t.source.id)}">🎙 錄音</button>`);
+  if (H.todos.sync.connected && t.dirty) meta.push('<span class="pend" title="還沒同步到 Google Tasks">↑</span>');
+  return `<li class="kcard ${t.pinned ? 'pinned' : ''}" draggable="true" data-id="${esc(t.id)}">
+    <button class="td-check" data-act="todo-toggle" data-id="${esc(t.id)}" role="checkbox" aria-checked="false" aria-label="完成：${esc(t.title)}">☐</button>
+    <div class="kc-main" data-act="todo-edit" data-id="${esc(t.id)}">
+      <div class="kc-title">${t.pinned ? '<span class="pin">★</span>' : ''}${esc(t.title)}</div>
+      ${meta.length ? `<div class="td-meta">${meta.join('')}</div>` : ''}
+    </div>
+    <button class="icon more" data-act="todo-menu" data-id="${esc(t.id)}" aria-label="更多動作" aria-haspopup="menu">⋯</button></li>`;
+}
+
+function boardHTML() {
+  const td = ymd(new Date());
+  const cols = lists().length ? lists() : [{ id: '', title: '我的待辦' }];
+  const all = H.todos.todos;
+  return `<div class="board">${cols.map(c => {
+    const items = all.filter(t => t.status === 'open' && (effList(t) || '') === c.id).sort((a, b) => sortKey(a) - sortKey(b));
+    const doneN = all.filter(t => t.status === 'done' && (effList(t) || '') === c.id).length;
+    return `<section class="kcol" aria-label="${esc(c.title)}">
+      <header class="kcol-head"><span class="kcol-title" title="${esc(c.title)}">${esc(c.title)}</span><span class="muted small">${items.length}</span>
+        ${c.id ? `<button class="icon more" data-act="col-menu" data-list="${esc(c.id)}" aria-label="清單動作" aria-haspopup="menu">⋯</button>` : ''}</header>
+      <ul class="kcol-body" data-list="${esc(c.id)}">${items.map(t => cardHTML(t, td)).join('')}</ul>
+      <form class="kcol-add" data-list="${esc(c.id)}" autocomplete="off"><input type="text" placeholder="＋ 新增（可寫「明天下午3點」）" aria-label="新增到 ${esc(c.title)}"></form>
+      ${doneN ? `<div class="muted small kcol-done">最近 7 天完成 ${doneN} 項</div>` : ''}
+    </section>`;
+  }).join('')}
+    <section class="kcol kcol-new">
+      <button class="btn" data-act="list-new">＋ 新增清單</button>
+      <p class="muted small">每個清單是一欄，會同步成 Google Tasks 的清單。例如「進行中」「等回覆」。</p>
+    </section></div>`;
+}
+
+function openColMenu(btn, lid) {
+  closeMenu();
+  const L = lists().find(x => x.id === lid);
+  if (!L) return;
+  const m = document.createElement('div');
+  m.id = 'td-menu'; m.className = 'menu'; m.setAttribute('role', 'menu'); m.dataset.for = 'col:' + lid;
+  m.innerHTML = `<button role="menuitem" data-act="list-rename" data-list="${esc(lid)}">重新命名…</button>
+    ${lists()[0].id === lid ? '' : `<button role="menuitem" class="danger" data-act="list-delete" data-list="${esc(lid)}">刪除這個清單…</button>`}`;
+  document.body.append(m);
+  const r = btn.getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(r.right - m.offsetWidth, innerWidth - m.offsetWidth - 8)) + scrollX + 'px';
+  m.style.top = r.bottom + 4 + scrollY + 'px';
+  m.querySelector('button').focus();
+}
+
+async function listDialog(title, value = '') {
+  const ok = await ask(title, '', '確定', false,
+    `<div class="field"><label for="list-name">清單名稱</label><input type="text" id="list-name" data-input="name" value="${esc(value)}" placeholder="例如：進行中"></div>
+     <p class="muted small">會同步建立／修改 Google Tasks 的清單。</p>`);
+  return ok ? dlgValues.name.trim() : null;
+}
+
+// 拖拉：看板的卡片（換欄＝換清單、上下＝排序），以及清單檢視拖到「今天／明天／沒有期限」
+const DRAG = { id: null, ph: null };
+function dropPlaceholder(body, y) {
+  if (!DRAG.ph) { DRAG.ph = document.createElement('li'); DRAG.ph.className = 'drop-ph'; }
+  const cards = [...body.querySelectorAll('.kcard:not(.dragging)')];
+  const before = cards.find(c => { const r = c.getBoundingClientRect(); return y < r.top + r.height / 2; });
+  before ? body.insertBefore(DRAG.ph, before) : body.append(DRAG.ph);
+}
+function dragCleanup() {
+  document.querySelectorAll('.dragging').forEach(x => x.classList.remove('dragging'));
+  document.querySelectorAll('.drop-on').forEach(x => x.classList.remove('drop-on'));
+  if (DRAG.ph) DRAG.ph.remove();
+  document.querySelectorAll('.drop-strip').forEach(x => x.remove());
+  DRAG.id = null; H.dragging = false;
+}
+document.addEventListener('dragstart', e => {
+  const c = e.target.closest && e.target.closest('.kcard, .td[draggable="true"]');
+  if (!c) return;
+  closeMenu();
+  DRAG.id = c.dataset.id; H.dragging = true;
+  if (c.classList.contains('td') && !$('#todo-list .drop-strip')) {
+    // 清單檢視：拖拉時在最上面出現「今天／明天／沒有期限」，就算那一組目前是空的也能拖進去
+    $('#todo-list').insertAdjacentHTML('afterbegin', `<div class="drop-strip">
+      <div class="td-group drop-zone" data-drop="today">拖到這裡：今天</div>
+      <div class="td-group drop-zone" data-drop="tomorrow">拖到這裡：明天</div>
+      <div class="td-group drop-zone" data-drop="none">拖到這裡：沒有期限</div></div>`);
+  }
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', DRAG.id);
+  requestAnimationFrame(() => c.classList.add('dragging'));
+});
+document.addEventListener('dragend', () => { dragCleanup(); safe(loadTodos); });
+document.addEventListener('dragover', e => {
+  if (!DRAG.id) return;
+  const body = e.target.closest('.kcol-body');
+  if (body) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; dropPlaceholder(body, e.clientY); return; }
+  const grp = e.target.closest('.td-group[data-drop]');
+  document.querySelectorAll('.drop-on').forEach(x => { if (x !== grp) x.classList.remove('drop-on'); });
+  if (grp) { e.preventDefault(); grp.classList.add('drop-on'); }
+});
+document.addEventListener('drop', async e => {
+  if (!DRAG.id) return;
+  const id = DRAG.id, t = H.todos.todos.find(x => x.id === id);
+  const body = e.target.closest('.kcol-body'), grp = e.target.closest('.td-group[data-drop]');
+  if (!t || (!body && !grp)) return;
+  e.preventDefault();
+  let data = null, msg = null;
+  if (body && DRAG.ph && DRAG.ph.parentNode === body) {
+    const sib = (el, dir) => { let x = el && el[dir]; while (x && (!x.classList.contains('kcard') || x.classList.contains('dragging'))) x = x[dir]; return x; };
+    const prev = sib(DRAG.ph, 'previousElementSibling'), next = sib(DRAG.ph, 'nextElementSibling');
+    const key = el => { const x = H.todos.todos.find(y => y.id === el.dataset.id); return x ? sortKey(x) : Date.now() / 1000; };
+    const sort = prev && next ? (key(prev) + key(next)) / 2 : prev ? key(prev) + 1 : next ? key(next) - 1 : Date.now() / 1000;
+    data = { sort };
+    const lid = body.dataset.list;
+    if (lid && lid !== effList(t)) { data.list_id = lid; msg = `已移到「${listTitle(lid)}」`; }
+  } else if (grp) {
+    const td = ymd(new Date()), tm = ymd(addDays(today0(), 1));
+    const due = { today: td, tomorrow: tm, none: null }[grp.dataset.drop];
+    if (due !== (t.due_date || null)) {
+      data = due ? { due_date: due } : { due_date: null, due_time: null };
+      msg = { today: '已改到今天', tomorrow: '已改到明天', none: '已清除日期' }[grp.dataset.drop];
+    }
+  }
+  dragCleanup();
+  if (data) await todoChange(id, data, msg);
+  else safe(loadTodos);
+});
+
+document.addEventListener('submit', async e => {
+  const f = e.target.closest('.kcol-add');
+  if (!f) return;
+  e.preventDefault();
+  const v = f.querySelector('input').value.trim();
+  if (!v) return;
+  const p = parseQuick(v);
+  if (!p.title) { toast('只有日期，沒有要做的事', true); return; }
+  if (f.dataset.list) p.list_id = f.dataset.list;
+  try { await api('/api/todos', p); f.querySelector('input').value = ''; } catch (err) { toast(err.message, true); }
+  await safe(loadTodos);
+  const again = document.querySelector(`.kcol-add[data-list="${CSS.escape(f.dataset.list)}"] input`);
+  if (again) again.focus();
+});
+
+document.addEventListener('click', async ev => {
+  const el = ev.target.closest('[data-act="col-menu"], [data-act^="list-"]');
+  if (!el) return;
+  const d = el.dataset;
+  switch (d.act) {
+    case 'col-menu': ($('#td-menu') && $('#td-menu').dataset.for === 'col:' + d.list) ? closeMenu() : openColMenu(el, d.list); break;
+    case 'list-new': {
+      const name = await listDialog('新增清單');
+      if (!name) break;
+      try { await api('/api/todos/lists', { title: name }); toast(`已新增「${name}」`); } catch (e) { toast(e.message, true); }
+      safe(loadTodos);
+      break;
+    }
+    case 'list-rename': {
+      closeMenu();
+      const name = await listDialog('重新命名清單', listTitle(d.list));
+      if (!name) break;
+      try { await api(`/api/todos/lists/${encodeURIComponent(d.list)}/rename`, { title: name }); toast('已改名'); } catch (e) { toast(e.message, true); }
+      safe(loadTodos);
+      break;
+    }
+    case 'list-delete': {
+      closeMenu();
+      if (!await ask(`刪除「${listTitle(d.list)}」？`, '這個清單會從 Google Tasks 刪除（裡面已完成的項目也會一起刪除）。只有沒有未完成待辦的清單才能刪除。', '刪除', true)) break;
+      try { await api(`/api/todos/lists/${encodeURIComponent(d.list)}/delete`, {}); toast('已刪除清單'); } catch (e) { toast(e.message, true); }
+      safe(loadTodos);
+      break;
+    }
+  }
+});

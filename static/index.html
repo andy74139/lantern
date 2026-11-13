@@ -19,6 +19,7 @@
     <div class="toc-group">首頁</div>
     <a href="#sec-week">行程</a>
     <a href="#sec-todo">待辦事項</a>
+    <a href="#sec-kb">知識庫</a>
     <a href="#sec-ai" class="toc-group-link">AI 工作</a>
     <a href="#sec-tasks">常用工作</a>
     <a href="#sec-rec">錄音整理</a>
@@ -55,6 +56,23 @@
     </section>
 
   </div>
+
+  <section class="card kb-card" id="sec-kb" aria-label="知識庫">
+    <div class="card-head"><h2>知識庫</h2><span id="kb-meta" class="muted small"></span></div>
+    <form id="kb-form" class="kb-ask" autocomplete="off">
+      <textarea id="kb-q" rows="2" placeholder="問你的錄音和文件，例如：上次會議決定的退款流程是什麼？（Enter 送出，Shift+Enter 換行）" aria-label="問知識庫"></textarea>
+      <div class="kb-ask-side">
+        <select id="kb-model" aria-label="用哪個模型回答" title="Claude：品質較好，找到的相關段落會傳給 Anthropic&#10;本機：完全不離開這台電腦，品質較普通">
+          <option value="claude">Claude 回答</option><option value="local">本機模型回答</option></select>
+        <button class="btn primary" type="submit" id="kb-send">詢問</button>
+      </div>
+    </form>
+    <div id="kb-answer"></div>
+    <details class="kb-src" id="kb-src">
+      <summary>資料來源與最近的問題</summary>
+      <div id="kb-src-body"></div>
+    </details>
+  </section>
 
   <h2 class="zone" id="sec-ai">AI 工作</h2>
 

@@ -17,7 +17,8 @@ from . import db, google, home
 API = "https://tasks.googleapis.com/tasks/v1"
 SYNC_EVERY = 5 * 60
 REPEATS = (None, "daily", "weekdays", "weekly", "monthly", "yearly")
-EDITABLE = ("title", "notes", "due_date", "due_time", "status", "pinned", "repeat", "list_id")
+EDITABLE = ("title", "notes", "due_date", "due_time", "status", "pinned", "repeat", "list_id", "sort")
+LOCAL_ONLY = {"sort", "pinned", "due_time", "repeat"}     # 只存在這台電腦、不用同步到 Google 的欄位
 
 SCHEMA = [
     """create table if not exists todos (
@@ -47,6 +48,8 @@ def init():
         db.execute("update todos set remote_list=list_id where google_id is not null")
     if "notified_at" not in cols:          # 到期提醒送出的時間
         db.execute("alter table todos add column notified_at real")
+    if "sort" not in cols:                 # 看板上的手動排序（只存在這台電腦）
+        db.execute("alter table todos add column sort real")
 
 
 def _kv(k, default=None):
@@ -97,6 +100,8 @@ def _clean(data):
             v = v or None
             if v not in REPEATS:
                 raise ValueError("重複方式不對")
+        elif k == "sort":
+            v = float(v) if v is not None else None
         elif k == "list_id":
             v = v or None
             if v and not db.query("select 1 from todo_lists where id=?", (v,)):
@@ -115,7 +120,7 @@ def get(tid):
 def list_all():
     since = time.time() - 7 * 86400
     rows = db.query("select id, title, notes, due_date, due_time, status, completed_at, pinned, repeat, source,"
-                    " list_id, created_at, updated_at, dirty, google_id from todos"
+                    " list_id, sort, created_at, updated_at, dirty, google_id from todos"
                     " where deleted=0 and (status='open' or completed_at > ?)", (since,))
     for r in rows:
         r["source"] = json.loads(r["source"]) if r["source"] else None
@@ -192,11 +197,13 @@ def update(tid, data):
     elif f.get("status") == "open":
         f["completed_at"] = None
     next_id = f.pop("next_id", None)
+    local_only = set(f) <= LOCAL_ONLY          # 只改排序、釘選這類本機欄位：不用同步
     if "due_date" in f or "due_time" in f:
         f["notified_at"] = None                 # 改了時間就重新提醒
     sets = ", ".join(f"{k}=?" for k in f)
-    db.execute(f"update todos set {sets}, updated_at=?, dirty=1 where id=?", (*f.values(), now, tid))
-    kick()
+    db.execute(f"update todos set {sets}, updated_at=?, dirty={'dirty' if local_only else '1'} where id=?", (*f.values(), now, tid))
+    if not local_only:
+        kick()
     out = get(tid)
     out["next_id"] = next_id
     return out
@@ -239,6 +246,52 @@ def check_due():
             db.execute("update todos set notified_at=? where id=?", (time.time(), r["id"]))
 
 
+# ---------------- 清單（看板的欄位）：直接在 Google Tasks 新增、改名、刪除 ----------------
+def _need_google():
+    if not google.status()["connected"]:
+        raise ValueError("要先連結 Google Tasks 才能管理清單")
+
+
+def create_list(title):
+    _need_google()
+    title = (title or "").strip()[:100]
+    if not title:
+        raise ValueError("清單名稱不能是空的")
+    r = google.request("POST", f"{API}/users/@me/lists", json={"title": title})
+    if r.status_code >= 400:
+        raise RuntimeError(f"建立清單失敗（{r.status_code}）：{r.text[:200]}")
+    _lists()
+    return {"id": r.json()["id"], "lists": db.query("select id, title from todo_lists order by position")}
+
+
+def rename_list(lid, title):
+    _need_google()
+    title = (title or "").strip()[:100]
+    if not title:
+        raise ValueError("清單名稱不能是空的")
+    r = google.request("PATCH", f"{API}/users/@me/lists/{lid}", json={"title": title})
+    if r.status_code >= 400:
+        raise RuntimeError(f"改名失敗（{r.status_code}）：{r.text[:200]}")
+    _lists()
+    return {"lists": db.query("select id, title from todo_lists order by position")}
+
+
+def delete_list(lid):
+    _need_google()
+    lists = db.query("select id from todo_lists order by position")
+    if lists and lists[0]["id"] == lid:
+        raise ValueError("Google Tasks 的預設清單不能刪除")
+    left = db.query("select count(*) n from todos where deleted=0 and status='open' and list_id=?", (lid,))[0]["n"]
+    if left:
+        raise ValueError(f"這個清單還有 {left} 項未完成的待辦，先移到別的清單再刪除")
+    r = google.request("DELETE", f"{API}/users/@me/lists/{lid}")
+    if r.status_code not in (200, 204, 404):
+        raise RuntimeError(f"刪除失敗（{r.status_code}）：{r.text[:200]}")
+    db.execute("delete from todos where list_id=?", (lid,))       # 只剩已完成的，Google 那邊也一起刪了
+    db.execute("delete from todo_lists where id=?", (lid,))
+    return {"lists": db.query("select id, title from todo_lists order by position")}
+
+
 # ---------------- 和 Google Tasks 同步 ----------------
 def sync_status():
     g = google.status()
@@ -258,6 +311,8 @@ def _lists():
         raise google.NeedAuth("連結 Google 時沒有勾選「Google Tasks」的權限，請重新連結並勾選。")
     r.raise_for_status()
     items = r.json().get("items", [])
+    if items:
+        db.execute(f"delete from todo_lists where id not in ({','.join('?' * len(items))})", [L["id"] for L in items])
     for i, L in enumerate(items):
         db.execute("insert into todo_lists(id, title, position) values(?,?,?)"
                    " on conflict(id) do update set title=excluded.title, position=excluded.position",

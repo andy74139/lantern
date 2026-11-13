@@ -29,3 +29,6 @@ __pycache__/
 # JetBrains／VS Code 的專案設定
 .idea/
 .vscode/
+
+# 知識庫設定（含你收錄的資料夾路徑）；上傳的是 kb.example.json
+config/kb.json

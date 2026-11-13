@@ -528,3 +528,54 @@ html { scroll-behavior: smooth; }
 /* 錄音上傳的選項：選單不超出框 */
 .drop-opts label { min-width: 0; }
 .drop-opts select { flex: 0 1 auto; min-width: 0; max-width: 62%; text-overflow: ellipsis; }
+
+/* 知識庫 */
+.kb-ask { display: flex; gap: 8px; align-items: stretch; }
+.kb-ask textarea { flex: 1; min-width: 0; resize: vertical; font-size: 14px; padding: 8px 12px; }
+.kb-ask-side { display: flex; flex-direction: column; gap: 6px; }
+@media (max-width: 640px) { .kb-ask { flex-direction: column; } .kb-ask-side { flex-direction: row; } }
+.kb-a { border-top: 1px solid var(--line); padding-top: 10px; }
+.kb-q-echo { font-weight: 600; margin-bottom: 6px; }
+.kb-q-echo .muted { font-weight: 400; }
+.cite { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px; margin: 0 1px;
+  border-radius: 9px; border: none; background: var(--accent-soft); color: var(--accent); font: 600 11px/1 var(--mono); vertical-align: 2px; cursor: pointer; }
+.kb-sources ol { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.kb-sources li { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+.kb-sources li:not(.used) { opacity: .7; }
+.kb-sources li.flash { border-color: var(--accent); background: var(--accent-soft); }
+.kb-s-head { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font: inherit; background: none; border: none; padding: 0; cursor: pointer; color: inherit; }
+.kb-s-title { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.kb-s-head .muted { margin-left: auto; white-space: nowrap; }
+.kb-s-text { font-size: 12.5px; color: var(--muted); margin-top: 3px; overflow-wrap: anywhere; }
+.kb-src > summary { cursor: pointer; font-size: 13px; color: var(--muted); padding: 4px 0; }
+.kb-src-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 8px; }
+@media (max-width: 760px) { .kb-src-grid { grid-template-columns: minmax(0, 1fr); } }
+.kb-src-grid h4 { font-size: 12.5px; margin: 0 0 6px; }
+.kb-folders, .kb-hist { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.kb-folders li { display: flex; align-items: center; gap: 6px; }
+.kb-folder { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#rec-pane .seg.hl { background: var(--accent-soft); border-radius: 6px; }
+
+/* 待辦看板 */
+.board { display: flex; gap: 12px; align-items: flex-start; overflow-x: auto; padding: 4px 2px 8px; }
+.kcol { flex: 0 0 270px; display: flex; flex-direction: column; gap: 8px; padding: 8px; border-radius: 10px; background: var(--code-bg); max-height: 72vh; }
+.kcol-head { display: flex; align-items: center; gap: 6px; padding: 2px 4px; }
+.kcol-title { font-weight: 650; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.kcol-head .icon.more { margin-left: auto; }
+.kcol-body { list-style: none; margin: 0; padding: 2px; display: grid; gap: 6px; min-height: 44px; overflow-y: auto; align-content: start; }
+.kcard { display: flex; align-items: flex-start; gap: 6px; padding: 7px 6px 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); cursor: grab; }
+.kcard:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.kcard.dragging, .td.dragging { opacity: .35; }
+.kc-main { flex: 1; min-width: 0; cursor: pointer; }
+.kc-title { font-size: 13.5px; overflow-wrap: anywhere; }
+.kcard .icon.more { opacity: 0; }
+.kcard:hover .icon.more, .kcard:focus-within .icon.more { opacity: 1; }
+@media (hover: none) { .kcard .icon.more { opacity: 1; } }
+.drop-ph { height: 36px; border: 2px dashed var(--accent); border-radius: 8px; background: var(--accent-soft); list-style: none; }
+.kcol-add input { width: 100%; font-size: 13px; padding: 6px 9px; background: var(--card); }
+.kcol-done { padding: 0 4px; }
+.kcol-new { background: none; border: 1.5px dashed var(--line); align-items: flex-start; }
+.td[draggable="true"] { cursor: grab; }
+.td-group.drop-on { outline: 2px dashed var(--accent); outline-offset: 2px; border-radius: 8px; background: color-mix(in srgb, var(--accent-soft) 50%, transparent); }
+.drop-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 6px 0 10px; }
+.drop-zone { padding: 12px 8px; text-align: center; font-size: 12.5px; color: var(--accent); border: 2px dashed color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: 8px; }

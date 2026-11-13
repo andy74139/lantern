@@ -8,9 +8,11 @@
 repo 裡不含個人設定、執行資料和語音模型（見 `.gitignore`），第一次要自己建立：
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install fastapi "uvicorn[standard]" httpx icalendar recurring-ical-events opencc-python-reimplemented
+python3 -m venv .venv && .venv/bin/python -m pip install fastapi "uvicorn[standard]" httpx icalendar recurring-ical-events opencc-python-reimplemented numpy pypdf
+ollama pull qwen3-embedding:0.6b                  # 知識庫的向量模型
 cp config/home.example.json config/home.json      # 地點、日曆
 cp config/tasks.example.json config/tasks.json    # 常用工作
+cp config/kb.example.json config/kb.json          # 知識庫
 mkdir -p models/breeze
 curl -L -o models/ggml-large-v3-turbo.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
 curl -L -o models/ggml-silero-v5.1.2.bin https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin
@@ -86,6 +88,9 @@ Google 連結要另外建立自己的用戶端（首頁按「連結 Google」照
 - 每項右邊的 ⋯：今天／明天／下週一／選日期／清除日期、釘選、移到別的清單、編輯、刪除。
 - 完成或刪除後，提示框裡可以按「復原」。
 - 有多個 Google Tasks 清單時，可以篩選清單、新增時選清單、把項目移到別的清單。
+- **看板**：「看板」分頁把每個 Google Tasks 清單當成一欄。卡片可以拖到別欄（＝移到那個清單，會同步到 Google）或上下拖拉排序（排序只存在這台電腦）。
+  每欄下方可以直接新增（一樣能寫「明天下午3點」）；最右邊「＋ 新增清單」、欄位的 ⋯ 可以改名或刪除清單（會同步到 Google；還有未完成待辦的清單不能刪）。
+- **清單檢視也能拖**：拖一項待辦時，最上面會出現「今天／明天／沒有期限」，拖進去就改日期。
 - 快捷鍵：`N` 新增、`/` 搜尋、`M` 音樂、`Esc` 關閉。
 - 有時間的待辦到期時會跳 macOS 通知（超過 15 分鐘的不補發）；分頁標題會顯示今天加過期的數量。
 
@@ -108,6 +113,17 @@ Google 連結要另外建立自己的用戶端（首頁按「連結 Google」照
   點一下用量那格會立刻更新。首頁 10 分鐘沒有人看就停止查詢。
 - 終端機的 Claude Code 每次回覆時，也會透過狀態列指令（`claude_statusline.py`，設定在 `~/.claude/settings.json`）順便更新。
 - 不讀任何登入資訊；需要終端機的 `claude` 已登入。
+
+## 知識庫
+
+在首頁的「知識庫」問問題，會從你的**錄音**（逐字稿與摘要，自動收錄）和**加入的資料夾**（PDF、Word、PowerPoint、Markdown、文字檔、網頁）找出相關段落，再請模型回答，每個說法都附出處 `[1]`、`[2]`。
+
+- 點出處：錄音會打開並跳到那一句（逐字稿標亮、播放器移到那個時間）；文件會用預設的 App 開啟，並告訴你在第幾頁／第幾張投影片。
+- 搜尋同時用語意（本機的向量模型 `qwen3-embedding:0.6b`，中英文可以互相找到）與關鍵字（人名、術語），再合併排序。
+- 回答可以選 **Claude**（品質較好，找到的相關段落會傳給 Anthropic）或 **本機模型**（完全不離開這台電腦）。
+- 索引存在 `data/kb.db`，每 10 分鐘自動更新；加入或移除資料夾、按「重新掃描」會立刻更新。移除資料夾不會刪除你的檔案。
+- 設定在 `config/kb.json`（資料夾清單、模型）；不會進 git，範本是 `config/kb.example.json`。
+- 第一次使用前要下載向量模型：`ollama pull qwen3-embedding:0.6b`。
 
 ## 新增常用工作
 
@@ -195,6 +211,7 @@ Google 連結要另外建立自己的用戶端（首頁按「連結 Google」照
 ## 資料位置
 
 - `data/controller.db`：待辦事項、音樂清單、執行紀錄
+- `data/kb.db`：知識庫的索引與問答紀錄
 - `data/cache/`：天氣與行事曆的快取（離線時顯示）
 - `data/google_token.json`、`config/google_client.json`：Google 授權（只有你讀得到）
 - `data/recordings/<編號>/`：每筆錄音的音檔、`transcript.txt`、`summary.md`、`job.log`

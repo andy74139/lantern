@@ -1,0 +1,7 @@
+{
+  "folders": [],
+  "embed_model": "qwen3-embedding:0.6b",
+  "answer_model": "claude",
+  "local_model": "qwen2.5:7b",
+  "claude_model": "sonnet"
+}

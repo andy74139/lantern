@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import claude_sessions, claude_usage, db, google, home, music, ollama, recordings, system, tasks, todos
+from . import claude_sessions, claude_usage, db, google, kb, home, music, ollama, recordings, system, tasks, todos
 
 STATIC = db.ROOT / "static"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
@@ -23,6 +23,7 @@ recordings.start_scheduler()
 home.start_refresher()
 todos.start_sync()
 claude_usage.start_poller()
+kb.start()
 
 
 @app.middleware("http")
@@ -318,6 +319,65 @@ def recording_todos(rid):
     return {"added": added, "found": len(lines)}
 
 
+# ---------- 知識庫 ----------
+class KbAsk(BaseModel):
+    q: str
+    model: str | None = None
+
+
+class KbFolder(BaseModel):
+    path: str
+
+
+class KbModel(BaseModel):
+    model: str
+
+
+@app.get("/api/kb")
+async def api_kb():
+    return {**(await run_in_threadpool(kb.status)), "history": await run_in_threadpool(kb.history)}
+
+
+@app.post("/api/kb/ask")
+async def api_kb_ask(req: KbAsk):
+    try:
+        return await run_in_threadpool(kb.ask, req.q, req.model)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/kb/reindex")
+async def api_kb_reindex():
+    kb.kick()
+    return await run_in_threadpool(kb.status)
+
+
+@app.post("/api/kb/folders/add")
+async def api_kb_folder_add(req: KbFolder):
+    try:
+        return await run_in_threadpool(kb.add_folder, req.path)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/kb/folders/remove")
+async def api_kb_folder_remove(req: KbFolder):
+    return await run_in_threadpool(kb.remove_folder, req.path)
+
+
+@app.post("/api/kb/model")
+async def api_kb_model(req: KbModel):
+    return await run_in_threadpool(kb.set_answer_model, req.model)
+
+
+@app.post("/api/kb/open/{doc_id}")
+async def api_kb_open(doc_id: int):
+    try:
+        return await run_in_threadpool(kb.open_doc, doc_id)
+    except Exception as e:
+        _fail(e)
+
+
 # ---------- 首頁：天氣、行事曆 ----------
 @app.get("/api/home")
 async def api_home():
@@ -375,6 +435,7 @@ class TodoReq(BaseModel):
     pinned: bool | None = None
     repeat: str | None = None
     list_id: str | None = None
+    sort: float | None = None
 
 
 @app.get("/api/todos")
@@ -393,6 +454,34 @@ async def api_todo_create(req: TodoReq):
 @app.post("/api/todos/sync")
 async def api_todo_sync():
     return await run_in_threadpool(todos.sync)
+
+
+class ListReq(BaseModel):
+    title: str | None = None
+
+
+@app.post("/api/todos/lists")
+async def api_list_create(req: ListReq):
+    try:
+        return await run_in_threadpool(todos.create_list, req.title)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/todos/lists/{lid}/rename")
+async def api_list_rename(lid: str, req: ListReq):
+    try:
+        return await run_in_threadpool(todos.rename_list, lid, req.title)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/todos/lists/{lid}/delete")
+async def api_list_delete(lid: str):
+    try:
+        return await run_in_threadpool(todos.delete_list, lid)
+    except Exception as e:
+        raise HTTPException(400, str(e))
 
 
 @app.post("/api/todos/{tid}")
