@@ -1,0 +1,24 @@
+{
+  "location": {
+    "name": "台北市",
+    "lat": 25.0375,
+    "lon": 121.5637
+  },
+  "timezone": "Asia/Taipei",
+  "calendars": [
+    {
+      "name": "我的行事曆",
+      "role": "main",
+      "google_id": "primary",
+      "ics_url": ""
+    },
+    {
+      "name": "活動提醒",
+      "role": "optional",
+      "google_id": "你的第二個日曆ID@group.calendar.google.com",
+      "ics_url": ""
+    }
+  ],
+  "open_on_login": true,
+  "todo_notifications": true
+}

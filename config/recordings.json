@@ -1,0 +1,27 @@
+{
+  "whisper_cli": "whisper-cli",
+  "whisper_model": "models/ggml-large-v3-turbo.bin",
+  "vad_model": "models/ggml-silero-v5.1.2.bin",
+  "language": "zh",
+  "traditional_chinese": true,
+  "initial_prompt": "以下是繁體中文的錄音逐字稿，請使用正確的標點符號。",
+  "glossary": [],
+  "summary_model": "qwen2.5:7b",
+  "num_ctx": 16384,
+  "claude_model": "sonnet",
+  "asr": "breeze",
+  "asr_models": {
+    "breeze": {
+      "label": "準確（Breeze）",
+      "model": "models/breeze/ggml-breeze-asr-25-q8_0.bin",
+      "add_punct": true,
+      "hint": "Breeze-ASR-25：中英夾雜、台灣華語較準，速度約慢一倍"
+    },
+    "turbo": {
+      "label": "快速（turbo）",
+      "model": "models/ggml-large-v3-turbo.bin",
+      "add_punct": false,
+      "hint": "whisper large-v3-turbo：速度快，英文段落容易出錯"
+    }
+  }
+}

@@ -1,0 +1,31 @@
+# ---- 隱私與憑證：絕對不要上傳 ----
+# 所有執行資料：待辦事項、錄音與逐字稿、行事曆快取、Claude 用量、Google 授權權杖、記錄檔
+data/
+# Google OAuth 用戶端（含 client secret）
+config/google_client.json
+# 個人設定（日曆 ID、地點、常用工作的路徑與名稱）；上傳的是 *.example.json 範本
+config/home.json
+config/tasks.json
+# 任何權杖、金鑰、環境變數檔
+*.token
+*.pem
+*.key
+.env
+.env.*
+
+# ---- 太大或可以重新產生 ----
+# 語音模型（每個 1.6 GB 以上，GitHub 單檔上限 100 MB；下載方式見 README）
+models/
+*.bin
+# Python 虛擬環境與快取
+.venv/
+__pycache__/
+*.pyc
+
+# ---- 系統與編輯器 ----
+.DS_Store
+.claude/settings.local.json
+
+# JetBrains／VS Code 的專案設定
+.idea/
+.vscode/

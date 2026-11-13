@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>首頁</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="date-head"><h1 id="today-date">首頁</h1><span id="clock" class="clock"></span><span id="wx-now" class="wx-head"></span>
+    <button class="btn sm music-btn" id="music-toggle" data-act="music-toggle" aria-controls="music-dock" aria-expanded="false" title="音樂（按 M）">♪ 音樂</button></div>
+  <div id="chips" class="chips"></div>
+</header>
+
+<nav id="toc" class="toc" aria-label="目錄">
+  <button class="toc-btn" data-act="toc-toggle" aria-expanded="false" aria-controls="toc-list">☰ 目錄</button>
+  <div id="toc-list" class="toc-list">
+    <div class="toc-group">首頁</div>
+    <a href="#sec-week">行程</a>
+    <a href="#sec-todo">待辦事項</a>
+    <a href="#sec-ai" class="toc-group-link">AI 工作</a>
+    <a href="#sec-tasks">常用工作</a>
+    <a href="#sec-rec">錄音整理</a>
+    <a href="#sec-ollama">Ollama</a>
+    <a href="#sec-claude">Claude 對話</a>
+    <a href="#sec-runs">最近執行</a>
+  </div>
+</nav>
+
+<main>
+  <section class="card week-card" id="sec-week" aria-label="行程">
+    <div class="card-head">
+      <h2>行程</h2>
+      <div id="next-event" class="next-wrap"></div>
+      <span id="cal-meta" class="muted small"></span>
+    </div>
+    <div id="cal-notice"></div>
+    <div id="week" class="week"><p class="muted small">載入中…</p></div>
+  </section>
+
+      <section class="card todo-card" id="sec-todo" aria-label="待辦事項">
+      <div class="card-head"><h2>待辦事項</h2><span id="todo-count" class="muted small"></span>
+        <input id="todo-search" type="search" placeholder="搜尋（按 /）" aria-label="搜尋待辦"></div>
+      <form id="todo-add" autocomplete="off">
+        <div class="add-row">
+          <input id="todo-input" type="text" placeholder="新增待辦（按 N），例如：明天下午3點 打給王經理" aria-label="新增待辦">
+          <select id="todo-add-list" aria-label="加到哪個清單" hidden></select>
+        </div>
+        <div id="todo-preview" class="preview"></div>
+      </form>
+      <div class="todo-bar"><div id="todo-tabs" class="tabs" role="tablist"></div><div id="todo-lists" class="list-chips"></div></div>
+      <div id="todo-list"></div>
+      <div id="todo-sync" class="sync-line"></div>
+    </section>
+
+  </div>
+
+  <h2 class="zone" id="sec-ai">AI 工作</h2>
+
+  <section id="sec-tasks">
+    <div class="sec-head"><h2>常用工作</h2><span class="muted small">定義在 config/tasks.json</span></div>
+    <div id="tasks" class="cards"><p class="muted">載入中…</p></div>
+  </section>
+
+  <section id="sec-rec">
+    <div class="sec-head"><h2>錄音整理</h2><span class="muted small">轉成逐字稿並整理重點，全部在本機處理</span></div>
+    <div id="rec-banner"></div>
+    <div class="rec-grid">
+      <div id="rec-drop" class="drop">
+        <strong>把錄音或影片拖到這裡</strong>
+        <button class="btn" data-act="rec-pick">選擇檔案</button>
+        <input type="file" id="rec-file" accept="audio/*,video/*" multiple hidden>
+        <div class="drop-opts small">
+          <label>轉錄 <select id="rec-asr"></select></label>
+          <label>整理用的模型 <select id="rec-model"></select></label>
+          <label>語言 <select id="rec-lang">
+            <option value="zh">中文</option><option value="en">英文</option><option value="ja">日文</option><option value="auto">自動偵測</option>
+          </select></label>
+        </div>
+      </div>
+      <div id="rec-list" class="panel list"><p class="muted pad small">載入中…</p></div>
+    </div>
+  </section>
+
+  <div class="cols">
+    <section id="sec-ollama">
+      <div class="sec-head"><h2>Ollama</h2><span id="ollama-ver" class="muted small"></span></div>
+      <div id="ollama-banner"></div>
+      <h3 class="sub">已載入記憶體</h3>
+      <div id="ollama-loaded" class="panel"></div>
+      <h3 class="sub">已安裝的模型</h3>
+      <div id="ollama-models" class="panel"></div>
+
+      <details class="panel fold">
+        <summary>下載新模型</summary>
+        <form id="pull-form" class="row">
+          <input id="pull-name" type="text" placeholder="模型名稱，例如 qwen2.5:7b" autocomplete="off" spellcheck="false">
+          <button class="btn" type="submit" id="pull-btn">下載</button>
+        </form>
+        <div id="pull-progress" class="small"></div>
+      </details>
+
+      <details class="panel fold" id="test-box">
+        <summary>測試一句 prompt</summary>
+        <div class="row">
+          <select id="test-model" aria-label="模型"></select>
+          <label class="check small"><input type="checkbox" id="test-think"> 思考模式</label>
+        </div>
+        <textarea id="test-prompt" rows="3" placeholder="輸入要測試的內容…"></textarea>
+        <div class="row">
+          <button class="btn primary" id="test-send" data-act="test-send">送出</button>
+          <span id="test-stats" class="muted small"></span>
+        </div>
+        <div id="test-out" class="out" hidden></div>
+      </details>
+    </section>
+
+    <section id="sec-claude">
+      <div class="sec-head">
+        <h2>Claude 對話</h2>
+        <input id="claude-q" type="search" placeholder="搜尋標題、專案、內容…" aria-label="搜尋對話">
+      </div>
+      <div id="claude-list" class="panel list"><p class="muted pad">載入中…</p></div>
+    </section>
+  </div>
+
+  <section id="sec-runs">
+    <div class="sec-head"><h2>最近執行</h2></div>
+    <div id="runs" class="panel"></div>
+  </section>
+</main>
+
+<aside id="music-dock" class="dock is-off" aria-label="音樂" aria-hidden="true">
+  <div class="dock-head">
+    <h2>音樂</h2>
+    <button class="btn sm toggle" id="loop-btn" data-act="music-loop" aria-pressed="true" title="播完自動從頭再播">↻ 單曲循環</button>
+    <button class="icon" data-act="music-close" title="收到旁邊（按 M）" aria-label="收起音樂">⇥</button>
+  </div>
+  <label class="check small dock-pref"><input type="checkbox" id="mini-pref" checked> 收起面板時，在右下角顯示小播放器</label>
+  <p class="dock-help muted small">不勾的話，收起後音樂照樣播放但完全看不到，要回來就點右上角的「♪ 播放中」。在小播放器按 ✕ 會停止播放。</p>
+  <div class="player"><div id="yt-player"></div><p id="player-empty" class="muted small">從下面選一首開始播放</p></div>
+  <div class="mini-bar">
+    <span id="mini-title" class="mini-title"></span>
+    <button class="icon" id="mini-pp" data-act="music-pp" aria-label="播放">▶</button>
+    <button class="icon" data-act="music-hide-mini" title="隱藏小播放器（音樂繼續播）" aria-label="隱藏小播放器，音樂繼續播放">⌄</button>
+    <button class="icon" data-act="music-toggle" title="展開音樂面板" aria-label="展開音樂面板">⤢</button>
+    <button class="icon" data-act="music-stop" title="停止並關閉音樂" aria-label="停止並關閉音樂">✕</button>
+  </div>
+  <div id="now-playing" class="now small"></div>
+  <form id="music-add" class="row" autocomplete="off">
+    <input id="music-url" type="text" placeholder="貼上 YouTube Music 連結" aria-label="YouTube Music 連結" spellcheck="false">
+    <button class="btn" type="submit">加入</button>
+  </form>
+  <div id="music-list" class="music-list"></div>
+</aside>
+
+<dialog id="dlg">
+  <div class="dlg-head"><h3 id="dlg-title"></h3><button class="icon" data-act="dlg-close" aria-label="關閉">✕</button></div>
+  <div id="dlg-body" class="dlg-body"></div>
+  <div id="dlg-foot" class="dlg-foot"></div>
+</dialog>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+
+<script src="/static/app.js"></script>
+<script src="/static/home.js"></script>
+</body>
+</html>

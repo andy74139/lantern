@@ -1,0 +1,66 @@
+{
+  "tasks": [
+    {
+      "id": "example-scan",
+      "name": "長時間掃描（範例）",
+      "description": "示範：可暫停、續跑、顯示進度的長時間工作。",
+      "cwd": "/path/to/your/project",
+      "running": {
+        "pidfile": "data/run.pid"
+      },
+      "status": {
+        "cmd": [
+          "python3",
+          "run.py",
+          "status"
+        ],
+        "every": 30
+      },
+      "progress": {
+        "file": "data/run.log",
+        "regex": "進度 (\\d+)/(\\d+) 頁(?:，預估剩 ([^\\n]+))?",
+        "done": 1,
+        "total": 2,
+        "unit": "頁",
+        "note": 3
+      },
+      "log": "data/run.log",
+      "actions": [
+        {
+          "id": "start",
+          "label": "開始／接續",
+          "cmd": [
+            "python3",
+            "run.py",
+            "start"
+          ],
+          "long": true,
+          "when": "stopped",
+          "style": "primary"
+        },
+        {
+          "id": "pause",
+          "label": "暫停",
+          "cmd": [
+            "python3",
+            "run.py",
+            "pause"
+          ],
+          "when": "running"
+        },
+        {
+          "id": "stop",
+          "label": "停止",
+          "cmd": [
+            "python3",
+            "run.py",
+            "stop"
+          ],
+          "when": "running",
+          "style": "danger",
+          "confirm": "確定要停止嗎？"
+        }
+      ]
+    }
+  ]
+}
