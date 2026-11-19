@@ -1204,3 +1204,212 @@ document.addEventListener('click', async ev => {
     }
   }
 });
+
+// ---------- ASA 準備進度 ----------
+const A = { d: null, tab: lsGet('asa-tab') || null, drag: null, planOpen: lsGet('asa-plan-open') === '1' };   // 讀書計畫預設收合
+const asaLink = (url, label, cls = 'asa-link') => url ? `<a class="${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer" title="${esc(url)}">${esc(label)} ↗</a>` : '';
+const ASA_ST = { todo: ['未開始', ''], studying: ['準備中', 'st-studying'], passed: ['已通過', 'st-passed'], waived: ['已抵免', 'st-passed'] };
+const md2 = s => { if (!s) return '—'; const d = parseYmd(s); return `${d.getMonth() + 1}/${d.getDate()}`; };
+const fullDate = s => { const d = parseYmd(s); return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}（${WDN[d.getDay()]}）`; };
+const hrs = n => (Math.round(n * 10) / 10).toString();
+
+// 環形圖：單一數列（一個色相、圓角端點），中間放數字
+function ring(pct, big, small, label) {
+  const r = 40, c = 2 * Math.PI * r, v = Math.min(1, Math.max(0, pct || 0));
+  return `<svg class="ring" viewBox="0 0 100 100" role="img" aria-label="${esc(label)}">
+    <circle class="ring-track" cx="50" cy="50" r="${r}"/>
+    ${v > 0 ? `<circle class="ring-val" cx="50" cy="50" r="${r}" stroke-dasharray="${(c * v).toFixed(2)} ${c.toFixed(2)}" transform="rotate(-90 50 50)"/>` : ''}
+    <text x="50" y="50" class="ring-big">${esc(big)}</text><text x="50" y="65" class="ring-small">${esc(small)}</text></svg>`;
+}
+
+function asaExamCard(e) {
+  const s = e.stats, pct = s.total ? s.done / s.total : 0;
+  const when = e.exam_date ? (s.days_left >= 0 ? `還有 ${s.days_left} 天` : '已考完') : '未設定考試日';
+  return `<div class="asa-ringcard">
+    ${ring(pct, Math.round(pct * 100) + '%', `${s.done}/${s.total}`, `${e.code} 已完成 ${s.done} / ${s.total} 項`)}
+    <div class="asa-ringinfo"><h3>${esc(e.code)}</h3><div class="muted small" title="${e.exam_date ? '考試 ' + fullDate(e.exam_date) : ''}">${when}</div>
+      <div class="asa-ringlinks">${asaLink(e.link, e.link_label || '學習頁')}<button class="btn link small" data-act="asa-exam-set" data-code="${esc(e.code)}">設定</button></div></div></div>`;
+}
+
+// 考科一列、其他項目（ATPA、VEE、FAP、APC…）一列
+function asaReqRow(title, reqs) {
+  if (!reqs.length) return '';
+  return `<div class="asa-reqs"><span class="asa-reqs-h">${esc(title)}</span>${reqs.map(r => {
+    const [label, cls] = ASA_ST[r.status] || ASA_ST.todo;
+    return `<button class="asa-req ${cls}" data-act="asa-req" data-id="${r.id}" title="${esc(label + (r.date ? '・' + r.date : '') + (r.note ? '\n' + r.note : ''))}">
+      <span class="asa-mark">${r.status === 'passed' || r.status === 'waived' ? '✓' : r.status === 'studying' ? '●' : '○'}</span>${esc(r.name)}</button>`;
+  }).join('')}</div>`;
+}
+
+function renderAsa() {
+  const d = A.d;
+  if (!d) return;
+  const active = d.exams.filter(e => e.active);
+  $('#asa-meta').textContent = `已完成 ${d.passed} / ${d.total} 項`;
+  setHTML($('#asa-overall'), `<div class="asa-rings">
+      <div class="asa-ringcard">
+        ${ring(d.overall, Math.round(d.overall * 100) + '%', 'ASA', `ASA 完整進度 ${Math.round(d.overall * 100)}%`)}
+        <div class="asa-ringinfo"><h3>完整進度</h3>
+          <div class="muted small" title="考試佔 ${Math.round(d.exam_part.weight * 100)}%、其他項目佔 ${Math.round(d.other_part.weight * 100)}%；準備中的考科依讀書進度完成的比例計入">考試 ${d.exam_part.done}/${d.exam_part.total}・其他 ${d.other_part.done}/${d.other_part.total}</div></div></div>
+      ${active.map(asaExamCard).join('')}
+    </div>
+    ${asaReqRow('考試', d.reqs.filter(r => r.kind === 'exam'))}
+    ${asaReqRow('其他', d.reqs.filter(r => r.kind !== 'exam'))}`);
+  setHTML($('#asa-exams'), '');
+  if (!A.tab || !active.some(e => e.code === A.tab)) A.tab = (active[0] || {}).code;
+  const e = d.exams.find(x => x.code === A.tab);
+  if (!e) { setHTML($('#asa-plan'), ''); return; }
+  const s = e.stats, today = d.today;
+  let tn = 0;
+  const rows = e.items.map((i, k) => {
+    const topicNo = i.kind === 'topic' ? ++tn : null;
+    const late = !i.done_at && i.target_date && i.target_date < today;
+    const diff = i.done_at && i.target_date ? Math.round((parseYmd(i.done_at) - parseYmd(i.target_date)) / 86400000) : null;
+    return `<li class="asa-row ${i.done_at ? 'done' : ''}" draggable="true" data-id="${i.id}">
+      <span class="grip" aria-hidden="true">⋮⋮</span>
+      <input type="checkbox" data-act="asa-done" data-id="${i.id}" ${i.done_at ? 'checked' : ''} aria-label="完成 ${esc(i.title)}">
+      <span class="asa-topic">${topicNo ? `Topic ${topicNo}` : ''}</span>
+      <span class="asa-tcell"><button class="asa-title" data-act="asa-item-edit" data-id="${i.id}">${esc(i.title)}${i.weight ? `<span class="asa-w">${esc(i.weight)}</span>` : ''}</button>${asaLink(i.link, '學習頁', 'asa-link sm')}</span>
+      ${i.done_at ? `<span class="asa-when">已完成 ${md2(i.done_at)}</span>`
+        : `<input type="date" class="asa-date-in ${late ? 'late' : ''}" data-act="asa-date" data-id="${i.id}" value="${esc(i.target_date || '')}" aria-label="${esc(i.title)} 預定日期" title="${late ? '已經過了你設的日期' : '自己安排的日期（可以不填）'}">`}
+      <button class="icon" data-act="asa-item-del" data-id="${i.id}" aria-label="刪除 ${esc(i.title)}" title="刪除">✕</button></li>`;
+  }).join('');
+  const next = active.map(x => { const n = x.items.find(i => !i.done_at); return n ? `${x.code}：${n.title}` : null; }).filter(Boolean);
+  const head = `<button class="asa-plan-toggle" data-act="asa-plan-toggle" aria-expanded="${A.planOpen}"><span class="caret">${A.planOpen ? '▾' : '▸'}</span><h3>讀書計畫</h3></button>`;
+  if (!A.planOpen) {
+    setHTML($('#asa-plan'), `<div class="asa-plan is-closed"><div class="asa-plan-head">${head}
+      <span class="muted small asa-next" title="${esc(next.join('\n'))}">${next.length ? '下一項　' + esc(next.join('・')) : ''}</span></div></div>`);
+    return;
+  }
+  setHTML($('#asa-plan'), `<div class="asa-plan">
+    <div class="asa-plan-head">${head}
+      <div class="tabs">${active.map(x => `<button class="tab ${x.code === A.tab ? 'on' : ''}" data-act="asa-tab" data-code="${esc(x.code)}">${esc(x.code)}</button>`).join('')}</div></div>
+    <ol class="asa-rows">${rows}</ol>
+    <form class="asa-add" data-code="${esc(e.code)}" autocomplete="off">
+      <input type="text" name="title" placeholder="新增項目，例如：刷題 第 1 回、模擬考 A" aria-label="新增讀書項目"><input type="hidden" name="hours" value="5">
+      <button class="btn sm" type="submit">新增</button></form>
+    <p class="muted small">Topic 1～${tn} 依 SOA 官方 syllabus（${esc((d.syllabus || {})[e.code] || '自訂')} 版）；自己加的項目（刷題、模擬考）不編號，一樣計入進度。日期都由你自己安排，可以不填。拖拉 ⋮⋮ 調整順序。</p></div>`);
+}
+
+async function loadAsa() { A.d = await api('/api/asa'); if (!A.drag) renderAsa(); }
+async function asaPost(path, body, msg) {
+  try { A.d = await api(path, body); renderAsa(); if (msg) toast(typeof msg === 'function' ? msg(A.d) : msg); }
+  catch (e) { toast(e.message, true); }
+}
+
+async function asaExamSettings(code) {
+  const e = A.d.exams.find(x => x.code === code);
+  const ok = await ask(`${code} 設定`, '', '儲存', false, `
+    <div class="field-row">
+      <div class="field"><label for="ae-exam">考試日</label><input type="date" id="ae-exam" data-input="exam_date" value="${esc(e.exam_date || '')}"></div>
+      <div class="field"><label for="ae-start">開始準備</label><input type="date" id="ae-start" data-input="start_date" value="${esc(e.start_date || '')}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field" style="flex:3"><label for="ae-link">學習頁連結（https://…）</label><input type="url" id="ae-link" data-input="link" value="${esc(e.link || '')}" placeholder="例如 Claude artifact 的網址"></div>
+      <div class="field" style="flex:1"><label for="ae-ll">連結文字</label><input type="text" id="ae-ll" data-input="link_label" value="${esc(e.link_label || '')}" placeholder="學習頁"></div>
+    </div>
+    <label class="check"><input type="checkbox" data-input="active" ${e.active ? 'checked' : ''}> 顯示在進度環形圖與讀書計畫</label>`);
+  if (!ok) return;
+  const v = dlgValues;
+  await asaPost(`/api/asa/exams/${encodeURIComponent(code)}`, {
+    exam_date: v.exam_date || null, start_date: v.start_date || null, active: !!v.active, link: v.link || null, link_label: v.link_label || null }, '已儲存');
+}
+
+async function asaReqDialog(id) {
+  const r = A.d.reqs.find(x => x.id === id);
+  const opts = Object.entries(ASA_ST).map(([k, [l]]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${l}</option>`).join('');
+  const p = ask(r.name, '', '儲存', false, `
+    <div class="field"><label for="ar-name">名稱</label><input type="text" id="ar-name" data-input="name" value="${esc(r.name)}"></div>
+    <div class="field-row">
+      <div class="field"><label for="ar-st">狀態</label><select id="ar-st" data-input="status">${opts}</select></div>
+      <div class="field"><label for="ar-date">日期（通過或預定）</label><input type="date" id="ar-date" data-input="date" value="${esc(r.date || '')}"></div>
+    </div>
+    <div class="field"><label for="ar-note">備註</label><input type="text" id="ar-note" data-input="note" value="${esc(r.note || '')}" placeholder="例如：成績 8 分、報名截止日"></div>`);
+  $('#dlg-foot').insertAdjacentHTML('afterbegin', `<button class="btn danger" data-act="asa-req-del" data-id="${id}" style="margin-right:auto">刪除這個項目</button>`);
+  if (!await p) return;
+  const v = dlgValues;
+  await asaPost(`/api/asa/reqs/${id}`, { name: v.name, status: v.status, date: v.date || null, note: v.note || null },
+    v.status === 'passed' && r.status !== 'passed' ? `恭喜通過 ${v.name}！🎉` : '已儲存');
+}
+
+safe(loadAsa);
+setInterval(() => { if (!document.hidden && !A.drag) safe(loadAsa); }, 60000);   // 跨日時重排
+document.addEventListener('change', async e => {
+  const dateEl = e.target.closest('[data-act="asa-date"]');
+  if (dateEl) { await asaPost(`/api/asa/items/${dateEl.dataset.id}`, { target_date: dateEl.value || null }); return; }
+  const el = e.target.closest('[data-act="asa-done"]');
+  if (!el) return;
+  await asaPost(`/api/asa/items/${el.dataset.id}`, { done: el.checked }, el.checked ? '完成！' : '已改回未完成');
+});
+document.addEventListener('submit', async e => {
+  const f = e.target.closest('.asa-add');
+  if (!f) return;
+  e.preventDefault();
+  const title = f.title.value.trim();
+  if (!title) return;
+  await asaPost(`/api/asa/exams/${encodeURIComponent(f.dataset.code)}/items`, { title, hours: 5 }, '已加入');
+});
+document.addEventListener('click', async ev => {
+  const el = ev.target.closest('[data-act^="asa-"]');
+  if (!el || el.dataset.act === 'asa-done') return;
+  const d = el.dataset;
+  switch (d.act) {
+    case 'asa-tab': A.tab = d.code; lsSet('asa-tab', d.code); renderAsa(); break;
+    case 'asa-plan-toggle': A.planOpen = !A.planOpen; lsSet('asa-plan-open', A.planOpen ? '1' : '0'); renderAsa(); break;
+    case 'asa-exam-set': asaExamSettings(d.code); break;
+    case 'asa-req': asaReqDialog(+d.id); break;
+    case 'asa-req-add': {
+      const ok = await ask('新增 ASA 項目', '', '新增', false, `<div class="field"><label for="ar-new">名稱</label><input type="text" id="ar-new" data-input="name" placeholder="例如：Exam ASTAM"></div>`);
+      if (ok) await asaPost('/api/asa/reqs', { name: dlgValues.name }, '已新增');
+      break;
+    }
+    case 'asa-req-del':
+      closeDlg('');
+      if (await ask('刪除這個項目？', '只會從進度清單移除。', '刪除', true)) await asaPost(`/api/asa/reqs/${d.id}/delete`, {}, '已刪除');
+      break;
+    case 'asa-item-edit': {
+      const i = A.d.exams.flatMap(x => x.items).find(x => x.id === +d.id);
+      const ok = await ask('編輯', '', '儲存', false, `
+        <div class="field"><label for="ai-t">名稱</label><input type="text" id="ai-t" data-input="title" value="${esc(i.title)}"></div>
+        <div class="field"><label for="ai-d">日期（自己安排，可以不填）</label><input type="date" id="ai-d" data-input="target_date" value="${esc(i.target_date || '')}"></div>
+        <div class="field"><label for="ai-l">學習頁連結（https://…，可以不填）</label><input type="url" id="ai-l" data-input="link" value="${esc(i.link || '')}"></div>`);
+      if (ok) await asaPost(`/api/asa/items/${d.id}`, { title: dlgValues.title, target_date: dlgValues.target_date || null, link: dlgValues.link || null }, '已儲存');
+      break;
+    }
+    case 'asa-item-del': {
+      const i = A.d.exams.flatMap(x => x.items).find(x => x.id === +d.id);
+      if (await ask('刪除這一項？', `「${i.title}」`, '刪除', true)) await asaPost(`/api/asa/items/${d.id}/delete`, {}, '已刪除');
+      break;
+    }
+  }
+});
+// 拖拉 ⋮⋮ 調整單元順序
+document.addEventListener('dragstart', e => {
+  const r = e.target.closest && e.target.closest('.asa-row');
+  if (!r) return;
+  A.drag = r.dataset.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', r.dataset.id);
+  requestAnimationFrame(() => r.classList.add('dragging'));
+});
+document.addEventListener('dragover', e => {
+  if (!A.drag) return;
+  const list = e.target.closest('.asa-rows');
+  if (!list) return;
+  e.preventDefault();
+  const rows = [...list.querySelectorAll('.asa-row:not(.dragging)')];
+  const before = rows.find(x => { const b = x.getBoundingClientRect(); return e.clientY < b.top + b.height / 2; });
+  const cur = list.querySelector('.asa-row.dragging');
+  if (cur) before ? list.insertBefore(cur, before) : list.append(cur);
+});
+document.addEventListener('dragend', async e => {
+  if (!A.drag) return;
+  const id = +A.drag; A.drag = null;
+  const row = document.querySelector(`.asa-row[data-id="${id}"]`);
+  if (!row) return;
+  row.classList.remove('dragging');
+  const ex = A.d.exams.find(x => x.items.some(i => i.id === id));
+  const ordOf = el => (ex.items.find(i => i.id === +el.dataset.id) || {}).ord;
+  const prev = row.previousElementSibling, next = row.nextElementSibling;
+  const o = prev && next ? (ordOf(prev) + ordOf(next)) / 2 : prev ? ordOf(prev) + 1 : next ? ordOf(next) - 1 : 0;
+  if (o === ordOf(row)) return;
+  await asaPost(`/api/asa/items/${id}`, { ord: o }, '順序已調整');
+});

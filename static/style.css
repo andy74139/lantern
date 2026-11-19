@@ -579,3 +579,102 @@ html { scroll-behavior: smooth; }
 .td-group.drop-on { outline: 2px dashed var(--accent); outline-offset: 2px; border-radius: 8px; background: color-mix(in srgb, var(--accent-soft) 50%, transparent); }
 .drop-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 6px 0 10px; }
 .drop-zone { padding: 12px 8px; text-align: center; font-size: 12.5px; color: var(--accent); border: 2px dashed color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: 8px; }
+
+/* ASA 準備進度 */
+.asa-overall { display: grid; gap: 10px; }
+.asa-bar { height: 10px; }
+.asa-reqs { display: flex; flex-wrap: wrap; gap: 6px; }
+.asa-req { font: inherit; font-size: 12.5px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--muted); cursor: pointer; display: inline-flex; gap: 5px; align-items: center; }
+.asa-req.st-passed { background: color-mix(in srgb, var(--ok) 14%, var(--card)); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); color: var(--text); }
+.asa-req.st-passed .asa-mark { color: var(--ok); font-weight: 700; }
+.asa-req.st-studying { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); color: var(--accent); font-weight: 600; }
+.asa-req.add { color: var(--accent); }
+.asa-exams { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 12px; }
+.asa-exam { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 6px; align-content: start; }
+.asa-exam-head { display: flex; justify-content: space-between; gap: 8px; }
+.asa-exam-head h3 { font-size: 18px; }
+.asa-date { font-size: 13px; }
+.asa-pct strong { font-size: 24px; font-variant-numeric: tabular-nums; }
+.asa-status { line-height: 1.6; }
+.ok-t { color: var(--ok); font-weight: 600; }
+.bad-t { color: var(--bad); font-weight: 600; }
+.asa-week { display: grid; gap: 3px; border-top: 1px solid var(--line); padding-top: 6px; margin-top: 2px; }
+.asa-wk { display: flex; gap: 6px; align-items: baseline; font-size: 13px; }
+.asa-wk span:nth-child(2) { flex: 1; min-width: 0; }
+.asa-plan { border-top: 1px solid var(--line); padding-top: 10px; display: grid; gap: 8px; }
+.asa-plan-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.asa-plan-head h3 { font-size: 14px; }
+.asa-plan-head .tabs { margin: 0; border: none; }
+.asa-plan-head .muted { margin-left: auto; }
+.asa-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.asa-row { display: grid; grid-template-columns: 16px 18px minmax(0, 1fr) 64px 170px 24px; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; font-size: 13.5px; }
+.asa-row:hover { background: var(--code-bg); }
+.asa-row.now { background: color-mix(in srgb, var(--accent-soft) 55%, transparent); }
+.asa-row.done .asa-title { text-decoration: line-through; color: var(--muted); }
+.asa-row.dragging { opacity: .4; }
+.grip { color: var(--muted); cursor: grab; font-size: 11px; letter-spacing: -2px; }
+.asa-title { font: inherit; text-align: left; background: none; border: none; padding: 0; color: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.asa-h, .asa-when { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .asa-row { grid-template-columns: 16px 18px minmax(0, 1fr) 24px; } .asa-h, .asa-when { grid-column: 3; } }
+.asa-review { font-size: 13px; padding: 6px 10px; border-radius: 6px; background: var(--code-bg); color: var(--muted); }
+.asa-add { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.asa-add input[type=text] { flex: 1; min-width: 160px; }
+.asa-add input[type=number] { width: 72px; }
+.asa-hours { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.asa-hours label { display: grid; gap: 2px; font-size: 12px; color: var(--muted); text-align: center; }
+.asa-hours input { width: 100%; text-align: center; }
+
+/* ASA：環形圖 */
+.asa-rings { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 12px; }
+.asa-ringcard { display: flex; gap: 14px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.asa-ringinfo { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.asa-ringinfo h3 { font-size: 16px; }
+.ring { width: 112px; height: 112px; flex: none; }
+.ring-track { fill: none; stroke: var(--code-bg); stroke-width: 9; }
+.ring-val { fill: none; stroke: var(--accent); stroke-width: 9; stroke-linecap: round; transition: stroke-dasharray .5s ease; }
+.ring-big { font: 650 20px/1 -apple-system, "PingFang TC", sans-serif; fill: var(--text); text-anchor: middle; font-variant-numeric: tabular-nums; }
+.ring-small { font: 10px/1 -apple-system, "PingFang TC", sans-serif; fill: var(--muted); text-anchor: middle; }
+.asa-reqs { margin-top: 10px; }
+.asa-row { grid-template-columns: 16px 18px 64px minmax(0, 1fr) 150px 24px; }
+.asa-topic { font: 600 12px var(--mono); color: var(--accent); white-space: nowrap; }
+.asa-date-in { font-size: 12.5px; padding: 2px 6px; }
+.asa-date-in.late { border-color: var(--bad); color: var(--bad); }
+@media (max-width: 640px) { .asa-row { grid-template-columns: 16px 18px minmax(0, 1fr) 24px; } .asa-topic { grid-column: 3; } .asa-title, .asa-when, .asa-date-in { grid-column: 3; } }
+.asa-w { margin-left: 8px; font: 11.5px var(--mono); color: var(--muted); white-space: nowrap; }
+.asa-rings { grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); }
+.asa-rings .ring { width: 96px; height: 96px; }
+.asa-ringcard { gap: 12px; padding: 10px 12px; }
+.asa-ringinfo .btn.link { justify-self: start; padding: 0; }
+.asa-ringinfo h3 { font-size: 15px; }
+
+/* 錄音：詞彙與修正 */
+.push { margin-left: auto; }
+.vocab-sec + .vocab-sec { margin-top: 18px; }
+.vocab-sec h3 { font-size: 14px; margin: 0 0 6px; }
+.vocab-sec textarea { width: 100%; min-height: 110px; font: inherit; }
+.vocab-meter { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.vocab-meter .mini { flex: 0 0 120px; }
+.vocab-rows { display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
+.vocab-row { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr) 44px 150px 30px; gap: 6px; align-items: center; }
+.vocab-row input, .vocab-row select { width: 100%; min-width: 0; }
+.vocab-row.is-off input { opacity: .55; }
+.vocab-row .cnt { text-align: right; }
+.vocab-head { font-weight: 600; color: var(--muted); }
+@media (max-width: 600px) { .vocab-row { grid-template-columns: minmax(0,1fr) auto minmax(0,1fr) 30px; } .vocab-row .cnt, .vocab-row select { display: none; } }
+
+/* ASA：考試一列、其他一列；學習頁連結；讀書計畫可收合 */
+.asa-reqs + .asa-reqs { margin-top: 6px; }
+.asa-reqs-h { font-size: 12px; color: var(--muted); width: 32px; flex: none; align-self: center; }
+.asa-ringlinks { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.asa-link { font-size: 12.5px; color: var(--accent); text-decoration: none; white-space: nowrap; }
+.asa-link:hover { text-decoration: underline; }
+.asa-link.sm { font-size: 12px; margin-left: 8px; }
+.asa-tcell { min-width: 0; }
+.asa-plan-toggle { display: inline-flex; align-items: center; gap: 6px; font: inherit; background: none; border: none; padding: 2px 0; color: inherit; cursor: pointer; }
+.asa-plan-toggle .caret { color: var(--muted); width: 10px; }
+.asa-plan.is-closed { gap: 0; }
+.asa-next { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+@media (max-width: 640px) { .asa-tcell { grid-column: 3; } }
+.asa-rings { grid-template-columns: repeat(auto-fit, minmax(min(100%, 168px), 1fr)); gap: 10px; }
+.asa-rings .ring { width: 78px; height: 78px; flex: none; }
+.asa-ringcard { gap: 10px; padding: 10px; }

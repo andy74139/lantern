@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import claude_sessions, claude_usage, db, google, kb, home, music, ollama, recordings, system, tasks, todos
+from . import asa, claude_sessions, claude_usage, db, google, icloud, kb, home, music, ollama, recordings, system, tasks, todos
 
 STATIC = db.ROOT / "static"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
@@ -24,6 +24,8 @@ home.start_refresher()
 todos.start_sync()
 claude_usage.start_poller()
 kb.start()
+asa.init()
+icloud.start()
 
 
 @app.middleware("http")
@@ -244,6 +246,24 @@ async def api_recording_create(request: Request, name: str, model: str = "", lan
         raise HTTPException(400, str(e))
 
 
+class VocabReq(BaseModel):
+    terms: list[str] | None = None
+    corrections: list[dict] | None = None
+
+
+@app.get("/api/recordings/vocab")
+async def api_recording_vocab():
+    return await run_in_threadpool(recordings.vocab)
+
+
+@app.post("/api/recordings/vocab")
+async def api_recording_vocab_save(req: VocabReq):
+    try:
+        return await run_in_threadpool(recordings.save_vocab, req.terms, req.corrections)
+    except Exception as e:
+        _fail(e)
+
+
 @app.get("/api/recordings/{rid}")
 async def api_recording(rid: str):
     try:
@@ -317,6 +337,56 @@ def recording_todos(rid):
                          {"type": "recording", "id": rid, "title": title})
             added += 1
     return {"added": added, "found": len(lines)}
+
+
+# ---------- ASA 準備進度 ----------
+async def _asa(fn, *args):
+    try:
+        return await run_in_threadpool(fn, *args)
+    except (ValueError, KeyError, TypeError) as e:
+        raise HTTPException(400, str(e) or "資料不對")
+
+
+@app.get("/api/asa")
+async def api_asa():
+    return await run_in_threadpool(asa.overview)
+
+
+@app.post("/api/asa/reqs")
+async def api_asa_req_add(request: Request):
+    d = await request.json()
+    return await _asa(asa.add_req, d.get("name"), d.get("kind") or "exam")
+
+
+@app.post("/api/asa/reqs/{rid}")
+async def api_asa_req_update(rid: int, request: Request):
+    return await _asa(asa.update_req, rid, await request.json())
+
+
+@app.post("/api/asa/reqs/{rid}/delete")
+async def api_asa_req_delete(rid: int):
+    return await _asa(asa.delete_req, rid)
+
+
+@app.post("/api/asa/exams/{code}")
+async def api_asa_exam_update(code: str, request: Request):
+    return await _asa(asa.update_exam, code, await request.json())
+
+
+@app.post("/api/asa/exams/{code}/items")
+async def api_asa_item_add(code: str, request: Request):
+    d = await request.json()
+    return await _asa(asa.add_item, code, d.get("title"), d.get("hours"))
+
+
+@app.post("/api/asa/items/{iid}")
+async def api_asa_item_update(iid: int, request: Request):
+    return await _asa(asa.update_item, iid, await request.json())
+
+
+@app.post("/api/asa/items/{iid}/delete")
+async def api_asa_item_delete(iid: int):
+    return await _asa(asa.delete_item, iid)
 
 
 # ---------- 知識庫 ----------
@@ -393,6 +463,20 @@ async def api_home_refresh():
     await run_in_threadpool(home.refresh_weather, True)
     await run_in_threadpool(home.refresh_calendar, True)
     return await api_home()
+
+
+# ---------- iCloud 匯出（給 iPhone／iPad）----------
+@app.get("/api/icloud")
+async def api_icloud():
+    return icloud.status()
+
+
+@app.post("/api/icloud/export")
+async def api_icloud_export():
+    try:
+        return await run_in_threadpool(icloud.export_once, True)
+    except Exception as e:
+        raise HTTPException(400, icloud._explain(e))
 
 
 # ---------- Google 連結 ----------

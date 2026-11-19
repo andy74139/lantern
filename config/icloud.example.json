@@ -1,0 +1,12 @@
+{
+  "enabled": false,
+  "folder": "~/Library/Mobile Documents/com~apple~CloudDocs/Lantern",
+  "interval": 60,
+  "budget_mb": 200,
+  "export": {
+    "home": true,
+    "todos": true,
+    "asa": true,
+    "recordings": true
+  }
+}

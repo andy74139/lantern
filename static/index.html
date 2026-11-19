@@ -19,6 +19,7 @@
     <div class="toc-group">首頁</div>
     <a href="#sec-week">行程</a>
     <a href="#sec-todo">待辦事項</a>
+    <a href="#sec-asa">ASA 進度</a>
     <a href="#sec-kb">知識庫</a>
     <a href="#sec-ai" class="toc-group-link">AI 工作</a>
     <a href="#sec-tasks">常用工作</a>
@@ -57,6 +58,13 @@
 
   </div>
 
+  <section class="card asa-card" id="sec-asa" aria-label="ASA 準備進度">
+    <div class="card-head"><h2>ASA 準備進度</h2><span id="asa-meta" class="muted small"></span></div>
+    <div id="asa-overall"></div>
+    <div id="asa-exams" class="asa-exams"></div>
+    <div id="asa-plan"></div>
+  </section>
+
   <section class="card kb-card" id="sec-kb" aria-label="知識庫">
     <div class="card-head"><h2>知識庫</h2><span id="kb-meta" class="muted small"></span></div>
     <form id="kb-form" class="kb-ask" autocomplete="off">
@@ -82,7 +90,7 @@
   </section>
 
   <section id="sec-rec">
-    <div class="sec-head"><h2>錄音整理</h2><span class="muted small">轉成逐字稿並整理重點，全部在本機處理</span></div>
+    <div class="sec-head"><h2>錄音整理</h2><span class="muted small">轉成逐字稿並整理重點，全部在本機處理</span><button class="btn sm push" data-act="rec-vocab" title="專有名詞提示與自動修正字典">詞彙與修正</button></div>
     <div id="rec-banner"></div>
     <div class="rec-grid">
       <div id="rec-drop" class="drop">

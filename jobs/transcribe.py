@@ -109,6 +109,155 @@ def add_punct(text):
     return _CJK_SPACE.sub("，", text.strip())
 
 
+# ---------------- 詞彙表與修正字典 ----------------
+# 存在 data/asr_vocab.json（個人資料，不進 git）：
+#   terms：專有名詞，轉錄時提示給 whisper，整理摘要時也會告訴模型正確寫法
+#   corrections：「辨識成 from → 其實是 to」。手動修改逐字稿時自動學到；
+#                同一組改過 2 次才自動套用（status: pending → on），避免偶然的修改被當成規則
+VOCAB = ROOT / "data" / "asr_vocab.json"
+PROMPT_TERMS_MAX = 150        # whisper 的提示最多約 224 個 token；中文一個字約 1～2 個 token，超過的詞不放進提示
+AUTO_ON_COUNT = 2
+_MARKS = "，。！？、；：,.!?;:「」『』（）()\"'… \t"
+
+
+def load_vocab():
+    try:
+        v = json.loads(VOCAB.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        v = {}
+    return {"terms": list(v.get("terms") or []), "corrections": list(v.get("corrections") or [])}
+
+
+def save_vocab(v):
+    VOCAB.parent.mkdir(parents=True, exist_ok=True)
+    tmp = VOCAB.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"terms": v["terms"], "corrections": v["corrections"]}, ensure_ascii=False, indent=1))
+    tmp.replace(VOCAB)
+
+
+def all_terms(cfg, vocab=None):
+    vocab = vocab or load_vocab()
+    seen, out = set(), []
+    for t in list(cfg.get("glossary") or []) + vocab["terms"]:
+        t = str(t).strip()
+        if t and t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
+def prompt_terms(cfg, vocab=None):
+    """放進 whisper 提示的詞（依清單順序，放到長度上限為止）。"""
+    out, n = [], 0
+    for t in all_terms(cfg, vocab):
+        if n + len(t) + 1 > PROMPT_TERMS_MAX:
+            continue
+        out.append(t)
+        n += len(t) + 1
+    return out
+
+
+def _ascii_word(ch):
+    return ch.isascii() and ch.isalnum()
+
+
+def _correction_re(frm):
+    """英文開頭／結尾的要對齊單字邊界（避免把 AI 換進 MAIL 裡面）。"""
+    pat = re.escape(frm)
+    if _ascii_word(frm[0]):
+        pat = r"(?<![A-Za-z0-9])" + pat
+    if _ascii_word(frm[-1]):
+        pat += r"(?![A-Za-z0-9])"
+    return re.compile(pat)
+
+
+def apply_corrections(text, vocab):
+    """套用已啟用的修正，回傳 (文字, 換了幾處)。長的先換，避免短規則先把長的拆掉。"""
+    n = 0
+    for c in sorted((c for c in vocab["corrections"] if c.get("status") == "on" and c.get("from")),
+                    key=lambda c: -len(c["from"])):
+        text, k = _correction_re(c["from"]).subn(lambda m, to=c["to"]: to, text)
+        n += k
+    return text, n
+
+
+def _diff_pairs(a, b):
+    """比對一句的原文 a 與修改後 b，找出像「換了一個詞」的修改。整句改寫、只改標點的都不算。"""
+    import difflib
+    sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
+    if sm.ratio() < 0.5:
+        return []
+    ops = []
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            continue
+        if ops and i1 - ops[-1][1] <= 1:                      # 中間只隔一個字：當成同一處修改
+            ops[-1] = (ops[-1][0], i2, ops[-1][2], j2)
+        else:
+            ops.append((i1, i2, j1, j2))
+    pairs = []
+    for i1, i2, j1, j2 in ops:
+        # 往外擴到完整的英文單字
+        while i1 > 0 and j1 > 0 and _ascii_word(a[i1 - 1]) and a[i1 - 1] == b[j1 - 1] and (
+                (i1 < len(a) and _ascii_word(a[i1])) or (j1 < len(b) and _ascii_word(b[j1]))):
+            i1, j1 = i1 - 1, j1 - 1
+        while i2 < len(a) and j2 < len(b) and _ascii_word(a[i2]) and a[i2] == b[j2] and (
+                (i2 > i1 and _ascii_word(a[i2 - 1])) or (j2 > j1 and _ascii_word(b[j2 - 1]))):
+            i2, j2 = i2 + 1, j2 + 1
+        # 中文至少要兩個字（只記一個字太容易誤換），優先帶上前一個字
+        while i2 - i1 < 2 or j2 - j1 < 1:
+            if i1 > 0 and j1 > 0 and a[i1 - 1] == b[j1 - 1] and a[i1 - 1] not in _MARKS:
+                i1, j1 = i1 - 1, j1 - 1
+            elif i2 < len(a) and j2 < len(b) and a[i2] == b[j2] and a[i2] not in _MARKS:
+                i2, j2 = i2 + 1, j2 + 1
+            else:
+                break
+        frm, to = a[i1:i2].strip(), b[j1:j2].strip()
+        if len(frm) < 2 or not to or frm == to or len(frm) > 16 or len(to) > 16:
+            continue
+        if any(ch in _MARKS.strip() for ch in frm + to):     # 跨標點的修改不當成詞的修正
+            continue
+        pairs.append((frm, to))
+    return pairs
+
+
+def learn_corrections(old_segments, new_segments, source=None):
+    """從手動修改學修正：比對同一句（時間相同）的前後文字。回傳這次學到／更新的修正。"""
+    old = {(round(x["start"], 2), round(x["end"], 2)): x["text"] for x in old_segments}
+    found = []
+    for x in new_segments:
+        a = old.get((round(x["start"], 2), round(x["end"], 2)))
+        if a and a != x["text"]:
+            found += _diff_pairs(a, x["text"])
+    if not found:
+        return []
+    vocab = load_vocab()
+    by_from = {c["from"]: c for c in vocab["corrections"]}
+    changed, now = [], time.time()
+    for frm, to in found:
+        back = by_from.get(to)
+        if back and back["to"] == frm:                     # 你把自動修正改回去了：這條規則不對，停用
+            back.update(status="off", count=0, updated=now)
+            changed.append(back)
+            continue
+        c = by_from.get(frm)
+        if c and c["to"] == to:
+            c["count"] = c.get("count", 0) + 1
+            if c.get("status") == "pending" and c["count"] >= AUTO_ON_COUNT:
+                c["status"] = "on"
+            c["updated"] = now
+        elif c:                                            # 同一個錯字這次改成別的：以最新的為準，重新計數
+            c.update(to=to, count=1, status="pending", updated=now)
+        else:
+            c = {"from": frm, "to": to, "count": 1, "status": "pending", "source": "learned",
+                 "added": now, "updated": now, "example": source}
+            vocab["corrections"].append(c)
+            by_from[frm] = c
+        changed.append(c)
+    save_vocab(vocab)
+    return changed
+
+
 class Job:
     def __init__(self, folder):
         self.dir = Path(folder)
@@ -214,9 +363,11 @@ def run_whisper(job, cfg, wav, lang, out_base, offset=0.0):
         raise RuntimeError(f"找不到語音模型：{model}")
     cmd = [cfg["whisper_cli"], "-m", model, "-f", str(wav), "-l", lang,
            "-oj", "-of", str(out_base), "-pp"]
+    vocab = load_vocab()
     prompt = cfg.get("initial_prompt", "") if lang in ("zh", "auto") else ""
-    if cfg.get("glossary"):
-        prompt += " " + "、".join(cfg["glossary"])
+    terms = prompt_terms(cfg, vocab)
+    if terms:                                          # 專有名詞放進提示：whisper 會傾向用這些寫法
+        prompt += " 會提到：" + "、".join(terms) + "。"
     if prompt.strip():
         cmd += ["--prompt", prompt.strip()]
     if cfg.get("vad_model") and Path(cfg["vad_model"]).exists():
@@ -243,7 +394,7 @@ def run_whisper(job, cfg, wav, lang, out_base, offset=0.0):
             cc = OpenCC("s2tw")                          # 只轉字形，不改用詞
         except Exception:
             cc = None
-    segments = []
+    segments, fixed = [], 0
     for seg in data.get("transcription", []):
         text = seg.get("text", "").strip()
         if not text:
@@ -254,8 +405,11 @@ def run_whisper(job, cfg, wav, lang, out_base, offset=0.0):
             text = add_punct(text)
         if detected == "zh":
             text = fullwidth_punct(text)
+        text, k = apply_corrections(text, vocab)
+        fixed += k
         off = seg.get("offsets") or {}
         segments += split_sentences(offset + off.get("from", 0) / 1000, offset + off.get("to", 0) / 1000, text)
+    job.auto_fixed = fixed                              # 這次自動套用了幾處修正
     return segments, detected
 
 
@@ -273,8 +427,9 @@ def transcribe(job, cfg, wav):
     t0 = time.time()
     segments, detected = run_whisper(job, cfg, wav, lang, job.dir / "whisper")
     segments = write_transcript(job.dir, segments)
+    (job.dir / "transcript.orig.json").unlink(missing_ok=True)   # 重新轉錄：舊的「修改前原稿」不再對得上
     wav.unlink(missing_ok=True)
-    job.save(detected_language=detected, chars=sum(len(x["text"]) for x in segments), asr=asr_choice(cfg, job.meta.get("asr"))[0],
+    job.save(auto_fixed=getattr(job, "auto_fixed", 0), transcript_edited=None, detected_language=detected, chars=sum(len(x["text"]) for x in segments), asr=asr_choice(cfg, job.meta.get("asr"))[0],
              transcribe_sec=round(time.time() - t0, 1), progress=100, summary_stale=False, fixed_ranges=[])
     return segments
 
@@ -296,8 +451,13 @@ def retranscribe_range(job, cfg, rng):
     finally:
         wav.unlink(missing_ok=True)
     old = json.loads((job.dir / "transcript.json").read_text())
-    keep = [x for x in old if not (start <= (x["start"] + x["end"]) / 2 < end)]   # 句子中間點落在這段裡的就換掉
+    inside = lambda x: start <= (x["start"] + x["end"]) / 2 < end                   # 句子中間點落在這段裡的就換掉
+    keep = [x for x in old if not inside(x)]
     segments = write_transcript(job.dir, keep + new)
+    orig = job.dir / "transcript.orig.json"
+    if orig.exists():                                   # 修改前原稿也換掉這段，之後比對才對得上
+        o = json.loads(orig.read_text())
+        orig.write_text(json.dumps(sorted([x for x in o if not inside(x)] + new, key=lambda x: x["start"]), ensure_ascii=False))
     fixed = (job.meta.get("fixed_ranges") or []) + [{"start": start, "end": end, "lang": detected, "at": time.time()}]
     job.save(chars=sum(len(x["text"]) for x in segments), progress=100, summary_stale=True, fixed_ranges=fixed)
     return segments
@@ -458,7 +618,7 @@ def summarize(job, cfg, segments):
         job.save(summarize_sec=0, summary_stale=False)
         return
     if model == "claude":
-        system = SYSTEM + ("\n以下專有名詞可能出現在錄音裡，請使用這些寫法：" + "、".join(cfg["glossary"]) if cfg.get("glossary") else "")
+        system = SYSTEM + ("\n以下專有名詞可能出現在錄音裡，請使用這些寫法：" + "、".join(all_terms(cfg)) if all_terms(cfg) else "")
         lines = paragraphs(segments, max_chars=60)
         summary = re.sub(r"^```(?:markdown)?\s*\n|\n```\s*$", "", claude_summary(cfg, system, lines).strip())
         summary = ground_times(to_traditional(summary, cfg), lines)
@@ -472,7 +632,7 @@ def summarize(job, cfg, segments):
                  summary_stale=False, summary_edited=False)
         return
     sm = Summarizer(cfg, model)
-    sm.system = SYSTEM + ("\n以下專有名詞可能出現在錄音裡，請使用這些寫法：" + "、".join(cfg["glossary"]) if cfg.get("glossary") else "")
+    sm.system = SYSTEM + ("\n以下專有名詞可能出現在錄音裡，請使用這些寫法：" + "、".join(all_terms(cfg)) if all_terms(cfg) else "")
     lines = paragraphs(segments)
     chunks = pack(lines, sm.chunk_chars)
     if len(chunks) == 1:

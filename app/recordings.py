@@ -26,13 +26,18 @@ _lock = threading.Lock()
 _proc = None                # 這次啟動後由控制台開始的工作：(id, Popen)
 
 
-def config():
+def _tx():
+    """jobs/transcribe.py（轉錄程式）裡的共用函式。"""
     sys.path.insert(0, str(JOB.parent))
     try:
         import transcribe
-        return transcribe.load_config()
+        return transcribe
     finally:
         sys.path.pop(0)
+
+
+def config():
+    return _tx().load_config()
 
 
 def _folder(rid):
@@ -220,13 +225,16 @@ def _editable(d):
 def save_transcript(rid, segments):
     """手動修改逐字稿：保留每句的時間，只改文字；清空的句子會刪掉。"""
     d = _folder(rid)
-    sys.path.insert(0, str(JOB.parent))
-    try:
-        import transcribe
-    finally:
-        sys.path.pop(0)
+    transcribe = _tx()
     with _lock:
         m = _editable(d)
+        try:
+            before = json.loads((d / "transcript.json").read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            before = []
+        orig = d / "transcript.orig.json"
+        if before and not orig.exists():                 # 第一次手動修改：留一份修改前的原稿（之後要評估或訓練時用得到）
+            orig.write_text(json.dumps(before, ensure_ascii=False))
         clean = []
         for x in segments or []:
             text = " ".join(str(x.get("text", "")).split())
@@ -235,7 +243,56 @@ def save_transcript(rid, segments):
         transcribe.write_transcript(d, clean)
         m.update(chars=sum(len(x["text"]) for x in clean), summary_stale=True, transcript_edited=time.time())
         _write(d, m)
-    return {"ok": True, "segments": len(clean)}
+        try:
+            learned = transcribe.learn_corrections(before, clean, source=rid)
+        except Exception as e:                           # 學不到不影響存檔
+            print(f"學習修正失敗：{e}", flush=True)
+            learned = []
+    return {"ok": True, "segments": len(clean),
+            "learned": [{k: c.get(k) for k in ("from", "to", "count", "status")} for c in learned]}
+
+
+def vocab():
+    """詞彙表、修正字典，以及已經人工校正過的錄音有多少（將來要不要訓練模型的參考）。"""
+    tx = _tx()
+    cfg, v = tx.load_config(), tx.load_vocab()
+    n = secs = 0
+    for d, m in _all():
+        if m.get("transcript_edited"):
+            n += 1
+            secs += m.get("duration") or 0
+    return {**v, "glossary": cfg.get("glossary") or [], "prompt": tx.prompt_terms(cfg, v),
+            "prompt_max": tx.PROMPT_TERMS_MAX, "auto_on": tx.AUTO_ON_COUNT,
+            "verified": {"count": n, "seconds": round(secs)}}
+
+
+def save_vocab(terms=None, corrections=None):
+    tx = _tx()
+    with _lock:
+        v = tx.load_vocab()
+        if terms is not None:
+            seen, out = set(), []
+            for t in terms:
+                t = " ".join(str(t).split())[:40]
+                if t and t not in seen:
+                    seen.add(t)
+                    out.append(t)
+            v["terms"] = out[:300]
+        if corrections is not None:
+            old = {c["from"]: c for c in v["corrections"]}
+            out, seen, now = [], set(), time.time()
+            for c in corrections:
+                frm, to = str(c.get("from", "")).strip()[:40], str(c.get("to", "")).strip()[:40]
+                if not frm or not to or frm == to or frm in seen:
+                    continue
+                seen.add(frm)
+                status = c.get("status") if c.get("status") in ("on", "pending", "off") else "on"
+                prev = old.get(frm) or {"from": frm, "count": 0, "source": "manual", "added": now}
+                out.append({**prev, "to": to, "status": status,
+                            "updated": now if (prev.get("to"), prev.get("status")) != (to, status) else prev.get("updated", now)})
+            v["corrections"] = out[:1000]
+        tx.save_vocab(v)
+    return vocab()
 
 
 def save_summary(rid, text, title=None):

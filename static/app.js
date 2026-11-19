@@ -213,7 +213,7 @@ function renderTasks() {
       ${pct === null ? '' : `<div>
         <div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>
         <div class="bar-label"><span>${p.done.toLocaleString()} / ${p.total.toLocaleString()} ${esc(p.unit)}（${pct.toFixed(1)}%）</span>
-          <span>${p.note ? '預估剩 ' + esc(p.note) : ''}</span></div>
+          <span>${p.note ? esc(p.prefix ?? '預估剩 ') + esc(p.note) : ''}</span></div>
       </div>`}
       ${headline ? `<div class="headline ${t.status.ok ? '' : 'muted'}">${esc(headline)}</div>` : ''}
       <div class="actions">${acts}</div>
@@ -530,7 +530,10 @@ function syncRecModel() {
     if (cur) sel.value = cur;
   }
   if (!sel.dataset.init && (o.models.length || S.recs.claude)) {
-    const want = lsGet('rec-model') || S.recs.summary_model;
+    // 設定檔的預設改了的話，以新的預設為準（不沿用之前在這個瀏覽器選過的）
+    const def = S.recs.summary_model, saved = lsGet('rec-model');
+    const want = saved && lsGet('rec-model-def') === def ? saved : def;
+    lsSet('rec-model-def', def);
     if ([...sel.options].some(x => x.value === want)) sel.value = want;
     const lang = lsGet('rec-lang') || S.recs.language;
     if ([...$('#rec-lang').options].some(x => x.value === lang)) $('#rec-lang').value = lang;
@@ -674,6 +677,7 @@ async function openRecording(id, tab = 'summary') {
   const base = '/api/recordings/' + encodeURIComponent(id);
   const info = [d.title ? d.name : null, d.duration ? '長度 ' + hms(d.duration) : null,
     d.transcribe_sec ? '轉錄花了 ' + dur(d.transcribe_sec) + (d.asr ? `（${asrName(d.asr)}）` : '') : null,
+    d.auto_fixed ? `自動修正 ${d.auto_fixed} 處` : null,
     d.summarize_sec ? '整理花了 ' + dur(d.summarize_sec) : null].filter(Boolean).map(esc).join('・');
   const audioPos = $('#rec-audio') && dlg.open ? $('#rec-audio').currentTime : 0;
   const body = `<p class="muted small" style="margin-bottom:10px">${info}</p>
@@ -705,6 +709,67 @@ async function sendToClaude(id) {
     closeDlg('');
   } catch (e) { toast(e.message, true); }
   safe(loadRecordings);
+}
+
+// ---------- 錄音：詞彙與修正 ----------
+const VOCAB_STATUS = { on: '自動套用', pending: '待確認', off: '停用' };
+function vocabRowHTML(c = { from: '', to: '', count: 0, status: 'on' }) {
+  return `<div class="vocab-row ${c.status === 'off' ? 'is-off' : ''}" data-vrow>
+    <input type="text" data-k="from" value="${esc(c.from)}" placeholder="辨識成" aria-label="辨識成">
+    <span class="muted">→</span>
+    <input type="text" data-k="to" value="${esc(c.to)}" placeholder="改成" aria-label="改成">
+    <span class="cnt muted small" data-tip="${esc('你手動改過幾次')}">${c.count || 0} 次</span>
+    <select data-k="status" aria-label="狀態">${Object.entries(VOCAB_STATUS).map(([k, l]) =>
+      `<option value="${k}" ${k === c.status ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <button class="icon" data-act="vocab-del" title="刪除這組" aria-label="刪除">🗑</button>
+  </div>`;
+}
+async function vocabDialog() {
+  let v;
+  try { v = await api('/api/recordings/vocab'); } catch (e) { toast(e.message, true); return; }
+  const used = v.prompt.reduce((n, t) => n + t.length + 1, 0);
+  const all = v.glossary.length + v.terms.length;
+  const cs = [...v.corrections].sort((a, b) => ({ pending: 0, on: 1, off: 2 }[a.status] - { pending: 0, on: 1, off: 2 }[b.status]) || (b.updated || 0) - (a.updated || 0));
+  const mins = Math.round(v.verified.seconds / 60);
+  openDlg('詞彙與修正', `
+    <div class="vocab-sec">
+      <h3>專有名詞</h3>
+      <p class="muted small">一行一個（人名、公司、科目、術語）。轉錄時會提示給語音模型，整理摘要時也會告訴模型正確寫法。常用的放前面：提示有長度上限，放不下的只用在摘要。</p>
+      <textarea id="vocab-terms" placeholder="例如：&#10;理賠&#10;ALTAM&#10;實發金額">${esc(v.terms.join('\n'))}</textarea>
+      ${v.glossary.length ? `<p class="muted small">另外 config/recordings.json 的 glossary 也有：${esc(v.glossary.join('、'))}</p>` : ''}
+      <div class="vocab-meter small muted"><span>轉錄提示已用 ${used} / ${v.prompt_max} 字</span>
+        <span class="mini use ${used > v.prompt_max * .9 ? 'warn' : ''}"><i style="width:${Math.min(100, used / v.prompt_max * 100).toFixed(0)}%"></i></span>
+        ${v.prompt.length < all ? `<span>（${all - v.prompt.length} 個放不下，只用在摘要）</span>` : ''}</div>
+    </div>
+    <div class="vocab-sec">
+      <h3>自動修正</h3>
+      <p class="muted small">你手動修改逐字稿時，系統會記下「辨識成 X → 其實是 Y」。同一組改過 ${v.auto_on} 次就變成「自動套用」，之後轉錄完直接換掉；
+        如果你把自動修正改回去，那組會自動停用。只改一兩個字的會帶上前後的字，避免誤換。</p>
+      <div class="vocab-rows" id="vocab-rows">
+        ${cs.length ? `<div class="vocab-row vocab-head small"><span>辨識成</span><span></span><span>改成</span><span class="cnt">次數</span><span>狀態</span><span></span></div>` : ''}
+        ${cs.map(vocabRowHTML).join('') || '<p class="muted small" id="vocab-empty">還沒有學到修正。修改逐字稿並儲存後就會出現在這裡，也可以自己新增。</p>'}
+      </div>
+      <button class="btn sm" data-act="vocab-add" style="margin-top:8px">＋ 新增一組</button>
+    </div>
+    <div class="vocab-sec">
+      <h3>人工校正過的錄音</h3>
+      <p class="small">${v.verified.count} 筆、約 ${mins} 分鐘。
+        <span class="muted">每筆第一次手動修改前的原稿會另外保留，將來累積到幾個小時，可以評估要不要用來微調語音模型。</span></p>
+    </div>`,
+    `<button class="btn" data-act="dlg-close">取消</button><button class="btn primary" data-act="vocab-save">儲存</button>`, true);
+}
+async function saveVocab() {
+  const terms = $('#vocab-terms').value.split('\n').map(x => x.trim()).filter(Boolean);
+  const corrections = [...document.querySelectorAll('#vocab-rows [data-vrow]')].map(r => ({
+    from: r.querySelector('[data-k=from]').value.trim(), to: r.querySelector('[data-k=to]').value.trim(),
+    status: r.querySelector('[data-k=status]').value })).filter(c => c.from || c.to);
+  const bad = corrections.find(c => !c.from || !c.to || c.from === c.to);
+  if (bad) { toast('每一組修正都要填「辨識成」和「改成」，而且兩邊不能一樣', true); return; }
+  try {
+    await api('/api/recordings/vocab', { terms, corrections });
+    toast('已儲存，下一次轉錄開始生效');
+    closeDlg('');
+  } catch (e) { toast(e.message, true); }
 }
 
 async function rangeDialog(id) {
@@ -847,6 +912,18 @@ document.addEventListener('click', async ev => {
     case 'rec-redo': redoRecording(d.id || (S.rec && S.rec.id)); break;
     case 'rec-claude': sendToClaude(S.rec.id); break;
     case 'rec-range': rangeDialog(S.rec.id); break;
+    case 'rec-vocab': vocabDialog(); break;
+    case 'vocab-add': {
+      $('#vocab-empty')?.remove();
+      const rows = $('#vocab-rows');
+      if (!rows.querySelector('.vocab-head')) rows.insertAdjacentHTML('afterbegin', '<div class="vocab-row vocab-head small"><span>辨識成</span><span></span><span>改成</span><span class="cnt">次數</span><span>狀態</span><span></span></div>');
+      rows.insertAdjacentHTML('beforeend', vocabRowHTML());
+      rows.lastElementChild.querySelector('input').focus();
+      rows.scrollTop = rows.scrollHeight;
+      break;
+    }
+    case 'vocab-del': el.closest('[data-vrow]').remove(); break;
+    case 'vocab-save': saveVocab(); break;
     case 'rec-use-time': { const a = $('#rec-audio'); if (a) document.getElementById(d.target).value = hms(Math.floor(a.currentTime)); break; }
     case 'rec-edit': S.recEdit = d.what; recPane(d.what); break;
     case 'rec-edit-cancel': S.recEdit = null; recPane(S.recTab); break;
@@ -860,7 +937,9 @@ document.addEventListener('click', async ev => {
       const segs = S.rec.segments.map((x, i) => ({ ...x, text: document.querySelector(`#rec-pane textarea[data-i="${i}"]`).value }));
       try {
         const r = await api(`/api/recordings/${encodeURIComponent(S.rec.id)}/edit/transcript`, { segments: segs });
-        toast(`逐字稿已儲存（${r.segments} 句）`); openRecording(S.rec.id, 'transcript'); safe(loadRecordings);
+        const on = r.learned.filter(c => c.status === 'on'), off = r.learned.filter(c => c.status === 'off');
+        const note = r.learned.length ? `；學到 ${r.learned.length} 組修正${on.length ? `，${on.map(c => `${c.from}→${c.to}`).join('、')} 之後會自動套用` : ''}${off.length ? `，停用 ${off.length} 組被你改回去的` : ''}` : '';
+        toast(`逐字稿已儲存（${r.segments} 句）${note}`); openRecording(S.rec.id, 'transcript'); safe(loadRecordings);
       } catch (e) { toast(e.message, true); }
       break;
     }
@@ -885,3 +964,8 @@ drop.addEventListener('drop', e => uploadRecordings(e.dataTransfer.files));
 $('#rec-file').addEventListener('change', e => { uploadRecordings(e.target.files); e.target.value = ''; });
 // 拖到區塊外面時，不要讓瀏覽器直接開啟那個檔案
 ['dragover', 'drop'].forEach(t => window.addEventListener(t, e => e.preventDefault()));
+// 詞彙與修正：狀態改成「停用」時把那一列變淡
+document.addEventListener('change', ev => {
+  const s = ev.target.closest('#vocab-rows [data-k=status]');
+  if (s) s.closest('[data-vrow]').classList.toggle('is-off', s.value === 'off');
+});

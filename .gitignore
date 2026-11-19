@@ -32,3 +32,7 @@ __pycache__/
 
 # 知識庫設定（含你收錄的資料夾路徑）；上傳的是 kb.example.json
 config/kb.json
+
+
+# iCloud 匯出設定（是否開啟、匯出哪些項目）；上傳的是 icloud.example.json
+config/icloud.json

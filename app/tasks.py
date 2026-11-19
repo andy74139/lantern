@@ -89,7 +89,23 @@ def tail(path, max_bytes=64_000):
         return ""
 
 
+def _file(task, path, exclude=None):
+    """記錄檔路徑；可以用萬用字元（例如 logs/*.log），會取最近修改的那個，exclude 是要排除的檔名規則。"""
+    if not any(ch in path for ch in "*?["):
+        return _cwd(task) / path
+    files = [f for f in _cwd(task).glob(path) if f.is_file() and not (exclude and re.search(exclude, f.name))]
+    return max(files, key=lambda f: f.stat().st_mtime) if files else _cwd(task) / path
+
+
 def running_pid(task):
+    proc = (task.get("running") or {}).get("process")
+    if proc:                                     # 用程序名稱判斷（沒有 PID 檔的工作，例如模型訓練）
+        try:
+            r = subprocess.run(["pgrep", "-f", proc], capture_output=True, text=True, timeout=5)
+            pids = [int(x) for x in r.stdout.split() if x.strip().isdigit() and int(x) != os.getpid()]
+            return pids[0] if pids else None
+        except Exception:
+            return None
     pidfile = (task.get("running") or {}).get("pidfile")
     if pidfile:
         try:
@@ -109,13 +125,24 @@ def _progress(task):
     if not cfg:
         return None
     try:
-        ms = list(re.finditer(cfg["regex"], tail(_cwd(task) / cfg["file"])))
+        f = _file(task, cfg["file"], cfg.get("exclude"))
+        ms = list(re.finditer(cfg["regex"], tail(f)))
         if not ms:
             return None
         m = ms[-1]
         done, total = int(m.group(cfg.get("done", 1))), int(m.group(cfg.get("total", 2)))
-        note = m.group(cfg["note"]) if cfg.get("note") else None
-        return {"done": done, "total": total, "unit": cfg.get("unit", ""), "note": note}
+        if cfg.get("state"):                    # 分段接續的工作：JSON 裡的 offset 是之前各段完成的量、total 是全部的量
+            try:
+                st = json.loads((_cwd(task) / cfg["state"]).read_text())
+                done, total = done + int(st.get("offset", 0)), int(st.get("total", total))
+            except (OSError, ValueError):
+                pass
+        if cfg.get("note_format"):              # 例如 "剩 {3}・loss {4}"：{n} 是第 n 個擷取群組
+            note = re.sub(r"\{(\d+)\}", lambda x: m.group(int(x.group(1))) or "", cfg["note_format"])
+        else:
+            note = m.group(cfg["note"]) if cfg.get("note") else None
+        return {"done": done, "total": total, "unit": cfg.get("unit", ""), "note": note,
+                "prefix": cfg.get("note_prefix", "預估剩 "), "file": f.name}
     except Exception:
         return None
 
@@ -149,10 +176,13 @@ def list_tasks():
     out = []
     for t in tasks:
         pid = running_pid(t)
+        prog = _progress(t)
+        if prog and not pid:
+            prog["note"] = None                  # 沒在跑時「預估剩多久」沒有意義
         out.append({
             "id": t["id"], "name": t["name"], "description": t.get("description", ""), "cwd": t["cwd"],
             "cwd_ok": _cwd(t).is_dir(),
-            "running": bool(pid), "pid": pid, "progress": _progress(t), "status": _status(t),
+            "running": bool(pid), "pid": pid, "progress": prog, "status": _status(t),
             "has_log": bool(t.get("log")),
             "last_run": (stats.get(t["id"]) or {}).get("last_run"),
             "run_count": (stats.get(t["id"]) or {}).get("n", 0),
@@ -167,7 +197,10 @@ def task_log(task_id):
     t = _find(task_id)
     if not t.get("log"):
         return {"text": ""}
-    lines = tail(_cwd(t) / t["log"], 32_000).splitlines()
+    text = tail(_file(t, t["log"], t.get("log_exclude")), 32_000)
+    # 進度條會用 \r 一直覆寫同一行：只保留每一段最後的狀態
+    lines = [ln.split("\r")[-1] for ln in text.replace("\r\n", "\n").split("\n")]
+    lines = [ln for ln in lines if ln.strip()]
     return {"text": "\n".join(lines[-120:])}
 
 

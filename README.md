@@ -114,6 +114,18 @@ Google 連結要另外建立自己的用戶端（首頁按「連結 Google」照
 - 終端機的 Claude Code 每次回覆時，也會透過狀態列指令（`claude_statusline.py`，設定在 `~/.claude/settings.json`）順便更新。
 - 不讀任何登入資訊；需要終端機的 `claude` 已登入。
 
+## ASA 準備進度
+
+首頁的「ASA 準備進度」（目錄裡也有）：
+
+- **環形圖**：完整進度、FAM、ALTAM、PA，旁邊是考試倒數和學習頁連結（「設定」可以改考試日、連結網址和連結文字，只接受 https:// 網址）。
+  完整進度＝考試（P、FM、FAM、SRM、PA、ALTAM 六科）佔 70%＋其他項目（ATPA、VEE、FAP、APC）佔 30%；已通過算滿，準備中的考科依讀書進度完成的比例計入。
+- **全部項目**：環形圖下方，考試一列、其他項目一列；點一下標籤改狀態（未開始／準備中／已通過／已抵免）、日期和備註，也可以刪除。
+- **讀書進度**：Topic 1、2…依 SOA 官方 syllabus（FAM 2026 年 2 月版、ALTAM 2026 年 10 月版、PA 2026 年 4 月版），標出官方權重範圍；
+  自己加的項目（刷題、模擬考）不編號，一樣計入進度。日期全部由你自己安排（可以不填），系統不會自動排或改日期。拖拉 ⋮⋮ 調整順序。
+  預設收合，只顯示各科的下一項；點「讀書計畫」展開（會記住）。點項目名稱可以設定這一項的學習頁連結。
+- SOA 改版時更新 `app/asa.py` 的 `SYLLABUS`。資料存在 `data/controller.db`（不會進 git）。
+
 ## 知識庫
 
 在首頁的「知識庫」問問題，會從你的**錄音**（逐字稿與摘要，自動收錄）和**加入的資料夾**（PDF、Word、PowerPoint、Markdown、文字檔、網頁）找出相關段落，再請模型回答，每個說法都附出處 `[1]`、`[2]`。
@@ -124,6 +136,25 @@ Google 連結要另外建立自己的用戶端（首頁按「連結 Google」照
 - 索引存在 `data/kb.db`，每 10 分鐘自動更新；加入或移除資料夾、按「重新掃描」會立刻更新。移除資料夾不會刪除你的檔案。
 - 設定在 `config/kb.json`（資料夾清單、模型）；不會進 git，範本是 `config/kb.example.json`。
 - 第一次使用前要下載向量模型：`ollama pull qwen3-embedding:0.6b`。
+
+## iPhone／iPad（iCloud 匯出）
+
+把首頁的資料放一份唯讀快照到 iCloud Drive 的「Lantern」資料夾，給 iPhone／iPad 上的 Lantern App 讀（App 的專案在另一個資料夾 `lantern_ios`）。
+
+- 開啟方式：`cp config/icloud.example.json config/icloud.json`，把 `enabled` 改成 `true`；一分鐘內生效，不用重啟。
+- 匯出的內容：行程與天氣、待辦（未完成＋最近 7 天完成）、ASA 進度、錄音的摘要與逐字稿。`export` 裡可以逐項關掉，關掉後 iCloud 上那份會自動移除。
+- **不會放進 iCloud**：錄音音檔、處理記錄、知識庫索引、Google 授權、Claude 對話。目前全部約 250 KB。
+- 每分鐘檢查一次，內容有變才寫檔；沒變的話每 15 分鐘只更新一個很小的 `meta.json`，讓手機知道 Mac 還開著。
+- 只有這台 Mac 會寫 `state/` 裡的檔案。目前 App 是唯讀的，不會改到這裡的任何資料。
+- 狀態：`curl -s localhost:8765/api/icloud`。如果顯示沒有權限，到「系統設定 → 隱私權與安全性 → 檔案與檔案夾」打開 python 的「iCloud Drive」。
+
+| 欄位 | 說明 |
+|---|---|
+| `enabled` | 是否匯出 |
+| `folder` | 匯出的位置，預設是 iCloud Drive 裡的 `Lantern` |
+| `interval` | 幾秒檢查一次，預設 60 |
+| `budget_mb` | 佔用上限（顯示在 App 的設定頁），預設 200 |
+| `export` | 要匯出的項目：`home`、`todos`、`asa`、`recordings` |
 
 ## 新增常用工作
 
@@ -157,9 +188,11 @@ Google 連結要另外建立自己的用戶端（首頁按「連結 Google」照
 | `actions[].inputs` | 執行前要填的欄位；`type` 為 `file`／`folder` 時會有「選擇…」按鈕 |
 | `actions[].timeout` | 非背景指令的秒數上限，預設 120 |
 | `running.pidfile` | 工作自己寫的 PID 檔，用來判斷是否執行中 |
+| `running.process` | 沒有 PID 檔時，用程序名稱判斷是否執行中（`pgrep -f`），例如 `mlx_vlm.train` |
 | `status.cmd` | 查詢狀態的指令，輸出會顯示在卡片上（`every` 秒更新一次） |
-| `progress` | 從記錄檔最後一筆符合 `regex` 的文字取進度；`done`／`total`／`note` 是擷取群組的編號 |
-| `log` | 卡片展開時顯示的記錄檔 |
+| `progress` | 從記錄檔最後一筆符合 `regex` 的文字取進度；`done`／`total`／`note` 是擷取群組的編號。`note_format`（例如 `"剩 {3}・loss {4}"`）可以組合多個群組，`note_prefix` 是前面的字（預設「預估剩 」） |
+| `progress.file`、`log` | 記錄檔；可以用萬用字元（例如 `logs/*.log`），會取最近修改的那個，`exclude`／`log_exclude` 排除符合的檔名。進度條用 `\r` 覆寫的行會只留最後狀態 |
+| `progress.state` | 分段接續的工作用：一個 JSON 檔（例如 `{"offset": 200, "total": 418}`），顯示的進度是 offset 加上這一段的進度、總量用 total |
 
 要交給 Claude 做的工作也可以寫成指令，例如 `["claude", "-p", "整理 {folder} 裡的文件"]`。
 
@@ -187,16 +220,29 @@ Google 連結要另外建立自己的用戶端（首頁按「連結 Google」照
 - 逐字稿改過（手動或重新辨識）後，摘要會標成「摘要待更新」。
 - 摘要會要求模型用自己的話歸納、合併相關內容，不逐句照抄逐字稿（Claude 做得最好；本機的小模型偶爾還是會照抄）。
 
+### 詞彙與修正（越用越準）
+
+錄音區右上角的「詞彙與修正」：
+
+- **專有名詞**：一行一個。轉錄時放進 whisper 的提示（約 150 字上限，前面的優先），整理摘要時也會告訴模型正確寫法。
+- **自動修正**：手動修改逐字稿並儲存時，系統會比對每句修改前後，記下像「換了一個詞」的修改（例如 `理陪 → 理賠`、`lucket in → locked in`）。
+  - 整句改寫、只改標點的不算；只改一個中文字的會帶上前後一個字，避免誤換。
+  - 同一組改過 2 次就變成「自動套用」，之後轉錄完直接換掉，錄音資訊會顯示「自動修正 N 處」。
+  - 你把自動修正改回去的話，那組會自動停用。也可以在這裡手動新增、改狀態或刪除。
+- 每筆錄音第一次手動修改前的原稿會存成 `transcript.orig.json`；對話框會顯示已校正幾筆、幾分鐘。將來累積到幾個小時，可以評估要不要拿來微調語音模型。
+
+詞彙表與修正字典存在 `data/asr_vocab.json`（不進 git）。
+
 ### 設定
 
 設定在 `config/recordings.json`，改完不用重啟：
 
 | 欄位 | 說明 |
 |---|---|
-| `summary_model` | 預設用來整理的模型：Ollama 模型名稱，或 `claude`（頁面上可以臨時改） |
+| `summary_model` | 預設用來整理的模型：`claude`（預設，品質最好、約十幾秒）或 Ollama 模型名稱（頁面上可以臨時改） |
 | `claude_model` | 用 Claude 整理時的模型，預設 `sonnet` |
 | `num_ctx` | 本機模型整理時的上下文長度；模型已經載入時會沿用它目前的長度，避免重新載入 |
-| `glossary` | 專有名詞清單，例如 `["實發", "自提", "待確認清單"]`；會提示給轉錄和整理兩個步驟，減少同音錯字 |
+| `glossary` | 固定的專有名詞（會和頁面上「詞彙與修正」的詞合併），例如 `["實發", "自提"]`；提示給轉錄和整理兩個步驟 |
 | `language` | 預設語言：`zh`、`en`、`ja`、`auto` |
 | `traditional_chinese` | 把轉錄結果的簡體字轉成繁體（只轉字形，不改用詞） |
 | `initial_prompt` | 給 whisper 的開頭提示，用來引導標點與用字 |
@@ -214,7 +260,8 @@ Google 連結要另外建立自己的用戶端（首頁按「連結 Google」照
 - `data/kb.db`：知識庫的索引與問答紀錄
 - `data/cache/`：天氣與行事曆的快取（離線時顯示）
 - `data/google_token.json`、`config/google_client.json`：Google 授權（只有你讀得到）
-- `data/recordings/<編號>/`：每筆錄音的音檔、`transcript.txt`、`summary.md`、`job.log`
+- `data/recordings/<編號>/`：每筆錄音的音檔、`transcript.txt`、`summary.md`、`job.log`；手動改過的還有 `transcript.orig.json`（修改前原稿）
+- `data/asr_vocab.json`：專有名詞與自動修正字典
 - `models/`：語音模型：`models/breeze/`（Breeze-ASR-25，1.66 GB）、large-v3-turbo（1.6 GB）與語音偵測模型
 - `data/claude_cache.json`：Claude 對話摘要的快取，可以直接刪掉
 - Claude 的對話紀錄讀自 `~/.claude/projects`，只讀不寫
