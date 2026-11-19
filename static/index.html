@@ -16,14 +16,13 @@
 <nav id="toc" class="toc" aria-label="目錄">
   <button class="toc-btn" data-act="toc-toggle" aria-expanded="false" aria-controls="toc-list">☰ 目錄</button>
   <div id="toc-list" class="toc-list">
-    <div class="toc-group">首頁</div>
+    <a href="#home" class="toc-group-link" data-page-link="home">首頁</a>
     <a href="#sec-week">行程</a>
     <a href="#sec-todo">待辦事項</a>
     <a href="#sec-asa">ASA 進度</a>
-    <a href="#sec-kb">知識庫</a>
-    <a href="#sec-ai" class="toc-group-link">AI 工作</a>
-    <a href="#sec-tasks">常用工作</a>
+    <a href="#ai" class="toc-group-link" data-page-link="ai">AI 工作</a>
     <a href="#sec-rec">錄音整理</a>
+    <a href="#sec-tasks">常用工作</a>
     <a href="#sec-ollama">Ollama</a>
     <a href="#sec-claude">Claude 對話</a>
     <a href="#sec-runs">最近執行</a>
@@ -31,7 +30,32 @@
 </nav>
 
 <main>
-  <section class="card week-card" id="sec-week" aria-label="行程">
+  <div class="topbar">
+    <div class="pagetabs" role="tablist" aria-label="頁面">
+      <button class="pagetab" role="tab" data-act="page" data-page="home" aria-selected="true">首頁</button>
+      <button class="pagetab" role="tab" data-act="page" data-page="ai" aria-selected="false">AI 工作<span id="ai-badge" class="pt-badge" hidden></span></button>
+    </div>
+    <section class="kb-bar" id="sec-kb" aria-label="知識庫">
+      <form id="kb-form" class="kb-ask" autocomplete="off">
+        <textarea id="kb-q" rows="1" placeholder="問知識庫（錄音和文件），例如：上次會議決定的退款流程是什麼？" aria-label="問知識庫"></textarea>
+        <select id="kb-model" aria-label="用哪個模型回答" title="Claude：品質較好，找到的相關段落會傳給 Anthropic&#10;本機：完全不離開這台電腦，品質較普通">
+          <option value="claude">Claude</option><option value="local">本機模型</option></select>
+        <button class="btn primary" type="submit" id="kb-send">詢問</button>
+        <button class="btn" type="button" data-act="kb-toggle" title="資料來源與最近的問題" aria-label="資料來源與最近的問題" aria-controls="kb-panel">⋯</button>
+      </form>
+      <div id="kb-panel" class="kb-panel" hidden>
+        <div class="kb-panel-head"><span id="kb-meta" class="muted small"></span>
+          <button class="icon" data-act="kb-close" title="收起" aria-label="收起知識庫回答">✕</button></div>
+        <div id="kb-answer"></div>
+        <details class="kb-src" id="kb-src">
+          <summary>資料來源與最近的問題</summary>
+          <div id="kb-src-body"></div>
+        </details>
+      </div>
+    </section>
+  </div>
+
+  <section class="card week-card pg-home" id="sec-week" aria-label="行程">
     <div class="card-head">
       <h2>行程</h2>
       <div id="next-event" class="next-wrap"></div>
@@ -41,55 +65,23 @@
     <div id="week" class="week"><p class="muted small">載入中…</p></div>
   </section>
 
-      <section class="card todo-card" id="sec-todo" aria-label="待辦事項">
-      <div class="card-head"><h2>待辦事項</h2><span id="todo-count" class="muted small"></span>
-        <input id="todo-search" type="search" placeholder="搜尋（按 /）" aria-label="搜尋待辦"></div>
-      <form id="todo-add" autocomplete="off">
-        <div class="add-row">
-          <input id="todo-input" type="text" placeholder="新增待辦（按 N），例如：明天下午3點 打給王經理" aria-label="新增待辦">
-          <select id="todo-add-list" aria-label="加到哪個清單" hidden></select>
-        </div>
-        <div id="todo-preview" class="preview"></div>
-      </form>
-      <div class="todo-bar"><div id="todo-tabs" class="tabs" role="tablist"></div><div id="todo-lists" class="list-chips"></div></div>
-      <div id="todo-list"></div>
-      <div id="todo-sync" class="sync-line"></div>
+  <div class="home-cols pg-home">
+    <section class="card todo-card" id="sec-todo" aria-label="待辦事項">
+    <div class="card-head"><h2>待辦事項</h2><span id="todo-count" class="muted small"></span>
+      <input id="todo-search" type="search" placeholder="搜尋（按 /）" aria-label="搜尋待辦"></div>
+    <div id="todo-list"></div>
+    <div id="todo-sync" class="sync-line"></div>
     </section>
 
-  </div>
-
-  <section class="card asa-card" id="sec-asa" aria-label="ASA 準備進度">
+    <section class="card asa-card" id="sec-asa" aria-label="ASA 準備進度">
     <div class="card-head"><h2>ASA 準備進度</h2><span id="asa-meta" class="muted small"></span></div>
     <div id="asa-overall"></div>
     <div id="asa-exams" class="asa-exams"></div>
     <div id="asa-plan"></div>
-  </section>
+    </section>
+  </div>
 
-  <section class="card kb-card" id="sec-kb" aria-label="知識庫">
-    <div class="card-head"><h2>知識庫</h2><span id="kb-meta" class="muted small"></span></div>
-    <form id="kb-form" class="kb-ask" autocomplete="off">
-      <textarea id="kb-q" rows="2" placeholder="問你的錄音和文件，例如：上次會議決定的退款流程是什麼？（Enter 送出，Shift+Enter 換行）" aria-label="問知識庫"></textarea>
-      <div class="kb-ask-side">
-        <select id="kb-model" aria-label="用哪個模型回答" title="Claude：品質較好，找到的相關段落會傳給 Anthropic&#10;本機：完全不離開這台電腦，品質較普通">
-          <option value="claude">Claude 回答</option><option value="local">本機模型回答</option></select>
-        <button class="btn primary" type="submit" id="kb-send">詢問</button>
-      </div>
-    </form>
-    <div id="kb-answer"></div>
-    <details class="kb-src" id="kb-src">
-      <summary>資料來源與最近的問題</summary>
-      <div id="kb-src-body"></div>
-    </details>
-  </section>
-
-  <h2 class="zone" id="sec-ai">AI 工作</h2>
-
-  <section id="sec-tasks">
-    <div class="sec-head"><h2>常用工作</h2><span class="muted small">定義在 config/tasks.json</span></div>
-    <div id="tasks" class="cards"><p class="muted">載入中…</p></div>
-  </section>
-
-  <section id="sec-rec">
+  <section id="sec-rec" class="pg-ai">
     <div class="sec-head"><h2>錄音整理</h2><span class="muted small">轉成逐字稿並整理重點，全部在本機處理</span><button class="btn sm push" data-act="rec-vocab" title="專有名詞提示與自動修正字典">詞彙與修正</button></div>
     <div id="rec-banner"></div>
     <div class="rec-grid">
@@ -109,14 +101,21 @@
     </div>
   </section>
 
-  <div class="cols">
+  <section id="sec-tasks" class="pg-ai">
+    <div class="sec-head"><h2>常用工作</h2><span class="muted small">定義在 config/tasks.json</span></div>
+    <div id="tasks" class="cards"><p class="muted">載入中…</p></div>
+  </section>
+
+  <div class="cols pg-ai">
     <section id="sec-ollama">
       <div class="sec-head"><h2>Ollama</h2><span id="ollama-ver" class="muted small"></span></div>
       <div id="ollama-banner"></div>
       <h3 class="sub">已載入記憶體</h3>
       <div id="ollama-loaded" class="panel"></div>
-      <h3 class="sub">已安裝的模型</h3>
-      <div id="ollama-models" class="panel"></div>
+      <details class="fold-models" id="ollama-models-box">
+        <summary><h3 class="sub">已安裝的模型 <span id="ollama-models-n" class="muted small"></span></h3></summary>
+        <div id="ollama-models" class="panel"></div>
+      </details>
 
       <details class="panel fold">
         <summary>下載新模型</summary>
@@ -151,7 +150,7 @@
     </section>
   </div>
 
-  <section id="sec-runs">
+  <section id="sec-runs" class="pg-ai">
     <div class="sec-head"><h2>最近執行</h2></div>
     <div id="runs" class="panel"></div>
   </section>

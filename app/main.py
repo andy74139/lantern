@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import asa, claude_sessions, claude_usage, db, google, icloud, kb, home, music, ollama, recordings, system, tasks, todos
+from . import activity, asa, claude_sessions, claude_usage, db, google, icloud, kb, home, music, ollama, recordings, system, tasks, todos
 
 STATIC = db.ROOT / "static"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
@@ -25,6 +25,7 @@ todos.start_sync()
 claude_usage.start_poller()
 kb.start()
 asa.init()
+activity.init()
 icloud.start()
 
 
@@ -345,6 +346,16 @@ async def _asa(fn, *args):
         return await run_in_threadpool(fn, *args)
     except (ValueError, KeyError, TypeError) as e:
         raise HTTPException(400, str(e) or "資料不對")
+
+
+@app.post("/api/activity")
+async def api_activity(request: Request):
+    return await run_in_threadpool(activity.record, await request.json())
+
+
+@app.get("/api/activity")
+async def api_activity_summary(days: int = 30):
+    return await run_in_threadpool(activity.summary, days)
 
 
 @app.get("/api/asa")

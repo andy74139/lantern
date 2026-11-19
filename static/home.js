@@ -2,7 +2,7 @@
 // 首頁：天氣、行程、待辦事項、Claude 用量、音樂。共用 app.js 的 $、esc、api、toast、setHTML、safe、ask、openDlg 等。
 
 const H = { home: null, todos: null, usage: null, music: [], cur: null, player: null, playerReady: false, counted: null,
-            loop: lsGet('music-loop') !== '0', view: lsGet('todo-view') || 'all', listFilter: lsGet('todo-list') || '',
+            loop: lsGet('music-loop') !== '0', view: 'board', listFilter: '',
             q: '', dock: 'off', hideMini: lsGet('music-mini') === 'hide' };
 const WDN = ['日', '一', '二', '三', '四', '五', '六'];
 const pad2 = n => String(n).padStart(2, '0');
@@ -234,20 +234,7 @@ function dueLabel(t) {
   return dayLabel(t.due_date) + (t.due_time ? ' ' + t.due_time : '');
 }
 
-function renderPreview() {
-  const v = $('#todo-input').value.trim();
-  if (!v) { setHTML($('#todo-preview'), ''); return; }
-  const p = parseQuick(v);
-  const chips = [];
-  if (p.due_date) chips.push(`📅 ${dueLabel(p)}`);
-  if (p.repeat) chips.push(`↻ ${REPEAT_LABEL[p.repeat]}`);
-  setHTML($('#todo-preview'), chips.length
-    ? `<span class="muted">按 Enter 新增「${esc(p.title || '…')}」</span>${chips.map(c => `<span class="chip-s">${esc(c)}</span>`).join('')}`
-    : `<span class="muted">按 Enter 新增</span>`);
-}
-
 // ---------- 待辦：分頁、清單、搜尋 ----------
-const VIEWS = [['focus', '今天'], ['upcoming', '接下來'], ['all', '全部'], ['done', '已完成'], ['board', '看板']];
 const lists = () => (H.todos && H.todos.lists) || [];
 const effList = t => t.list_id || (lists()[0] || {}).id || '';
 const listTitle = id => (lists().find(x => x.id === id) || {}).title || '';
@@ -298,54 +285,18 @@ function renderTodos() {
   if (H.listFilter && !lists().some(L => L.id === H.listFilter)) H.listFilter = '';
   const all = H.todos.todos.filter(t => !H.listFilter || effList(t) === H.listFilter);
   const open = all.filter(t => t.status === 'open');
-  const doneL = all.filter(t => t.status === 'done').sort((a, b) => b.completed_at - a.completed_at);
   const overdue = open.filter(t => t.due_date && t.due_date < td).sort(byOrder);
-  const counts = { focus: open.filter(t => t.due_date && t.due_date <= td).length,
-                   upcoming: open.filter(t => t.due_date && t.due_date > td).length, all: open.length, done: doneL.length,
-                   board: H.todos.todos.filter(t => t.status === 'open').length };
 
-  setHTML($('#todo-tabs'), VIEWS.map(([v, l]) => `<button class="tab ${H.view === v && !H.q ? 'on' : ''}" role="tab" aria-selected="${H.view === v}" data-act="todo-view" data-view="${v}">${l}<span class="n">${counts[v] || ''}</span></button>`).join(''));
-  setHTML($('#todo-lists'), lists().length > 1
-    ? [['', '所有清單'], ...lists().map(L => [L.id, L.title])].map(([id, title]) => `<button class="lchip ${H.listFilter === id ? 'on' : ''}" data-act="todo-list-filter" data-list="${esc(id)}">${esc(title)}</button>`).join('')
-    : '');
-  const sel = $('#todo-add-list');
-  sel.hidden = lists().length < 2;
-  const opts = lists().map(L => `<option value="${esc(L.id)}">${esc(L.title)}</option>`).join('');
-  if (sel.dataset.opts !== opts) { sel.innerHTML = opts; sel.dataset.opts = opts; }
-  if (H.listFilter && document.activeElement !== sel) sel.value = H.listFilter;
-
+  // 只用看板（每個 Google Tasks 清單一欄）；搜尋時改成列出符合的項目
   const q = H.q.trim().toLowerCase();
-  if (H.view === 'board' && !q) {
-    setHTML($('#todo-lists'), '');
-    $('#todo-add-list').hidden = true;
+  if (!q) {
     setHTML($('#todo-list'), boardHTML());
     finishTodoRender(open, overdue, td);
     return;
   }
-  let groups = [], empty = '';
-  if (q) {
-    const hits = all.filter(t => (t.title + ' ' + (t.notes || '')).toLowerCase().includes(q)).sort(byOrder);
-    groups = [['search', `搜尋「${H.q.trim()}」`, hits, true]];
-    empty = '找不到符合的待辦（只搜尋未完成，以及最近 7 天完成的）。';
-  } else if (H.view === 'done') {
-    groups = [['done', '最近 7 天完成', doneL, true]];
-    empty = '最近 7 天沒有完成的項目。';
-  } else if (H.view === 'upcoming') {
-    const up = open.filter(t => t.due_date && t.due_date > td).sort(byOrder);
-    const wk = ymd(addDays(today0(), 7));
-    const days = [...new Set(up.filter(t => t.due_date <= wk).map(t => t.due_date))];
-    groups = days.map(d => ['d' + d, dayLabel(d), up.filter(t => t.due_date === d), false]);
-    groups.push(['later', '之後', up.filter(t => t.due_date > wk), true]);
-    empty = '接下來沒有排定日期的待辦。';
-  } else if (H.view === 'focus') {
-    groups = [['overdue', '已過期', overdue, true], ['today', '今天', open.filter(t => t.due_date === td).sort(byOrder), false]];
-    empty = '今天沒有要做的事 🎉';
-  } else {
-    const by = {};
-    for (const t of open) (by[groupOf(t, td)] ||= []).push(t);
-    groups = GROUPS.map(([g, l]) => [g, l, (by[g] || []).sort(byOrder), !['today', 'tomorrow'].includes(g)]);
-    empty = '沒有待辦事項。在上面輸入一件事，按 Enter 就會加入。';
-  }
+  const hits = all.filter(t => (t.title + ' ' + (t.notes || '')).toLowerCase().includes(q)).sort(byOrder);
+  let groups = [['search', `搜尋「${H.q.trim()}」`, hits, true]];
+  const empty = '找不到符合的待辦（只搜尋未完成，以及最近 7 天完成的）。';
   groups = groups.filter(g => g[2].length);
   let h = groups.map(([g, label, items, showDate]) => `<div class="td-group g-${g}" ${['today', 'tomorrow', 'none'].includes(g) && !q ? `data-drop="${g}"` : ''}>
       <h3>${esc(label)}<span class="muted"> ${items.length}</span>
@@ -726,22 +677,8 @@ safe(loadMusic);
 })();
 
 // ---------- 事件 ----------
-$('#todo-input').addEventListener('input', renderPreview);
 $('#mini-pref').addEventListener('change', e => { H.hideMini = !e.target.checked; lsSet('music-mini', H.hideMini ? 'hide' : 'show'); });
 $('#todo-search').addEventListener('input', e => { H.q = e.target.value; renderTodos(); });
-$('#todo-add').addEventListener('submit', async ev => {
-  ev.preventDefault();
-  const v = $('#todo-input').value.trim();
-  if (!v) return;
-  const p = parseQuick(v);
-  if (!p.title) { toast('只有日期，沒有要做的事', true); return; }
-  if (!$('#todo-add-list').hidden) p.list_id = $('#todo-add-list').value;
-  try {
-    await api('/api/todos', p);
-    $('#todo-input').value = ''; renderPreview();
-  } catch (e) { toast(e.message, true); }
-  safe(loadTodos);
-});
 $('#music-add').addEventListener('submit', async ev => {
   ev.preventDefault();
   const url = $('#music-url').value.trim();
@@ -770,8 +707,8 @@ document.addEventListener('keydown', e => {
   if (e.metaKey || e.ctrlKey || e.altKey || dlg.open) return;
   const tag = (e.target.tagName || '').toLowerCase();
   if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
-  if (e.key === 'n' || e.key === 'N') { e.preventDefault(); $('#todo-input').focus(); }
-  else if (e.key === '/') { e.preventDefault(); $('#todo-search').focus(); }
+  if (e.key === 'n' || e.key === 'N') { if (document.body.dataset.page !== 'home') setPage('home'); const f = $('#todo-list .kcol-add input'); if (f) { e.preventDefault(); f.scrollIntoView({ block: 'nearest' }); f.focus(); } }
+  else if (e.key === '/') { e.preventDefault(); if (document.body.dataset.page !== 'home') setPage('home'); $('#todo-search').focus(); }
   else if (e.key === 'm' || e.key === 'M') { e.preventDefault(); setDock(H.dock === 'open' ? 'closed' : 'open'); }
 });
 
@@ -874,6 +811,28 @@ document.addEventListener('click', async ev => {
   }
 });
 
+// ---------- 頁面：首頁／AI 工作 ----------
+// 開機看的是「首頁」（行程、待辦、ASA）；AI 相關的監控與操作放在「AI 工作」。網址 #ai 或 AI 區塊的錨點會直接開 AI 工作。
+const pageOf = el => (el.closest('.pg-ai') ? 'ai' : 'home');
+function setPage(pg, toTop = true) {
+  if (document.body.dataset.page === pg) { if (toTop) scrollTo({ top: 0 }); return; }
+  document.body.dataset.page = pg;
+  document.querySelectorAll('.pagetab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.page === pg)));
+  document.querySelectorAll('#toc [data-page-link]').forEach(a => a.classList.toggle('cur', a.dataset.pageLink === pg));
+  history.replaceState(null, '', pg === 'ai' ? '#ai' : location.pathname + location.search);
+  if (toTop) scrollTo({ top: 0 });
+  document.dispatchEvent(new CustomEvent('pagechange', { detail: pg }));
+}
+(() => {
+  const h = location.hash.slice(1), el = h && h !== 'ai' && document.getElementById(h);
+  setPage(h === 'ai' || (el && pageOf(el) === 'ai') ? 'ai' : 'home', false);
+  if (el) requestAnimationFrame(() => el.scrollIntoView());
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-act="page"]');
+    if (b) setPage(b.dataset.page);
+  });
+})();
+
 // ---------- 目錄 ----------
 (() => {
   const toc = $('#toc'), links = [...toc.querySelectorAll('a[href^="#"]')];
@@ -882,7 +841,14 @@ document.addEventListener('click', async ev => {
     if (e.target.closest('[data-act="toc-toggle"]')) { setOpen(!toc.classList.contains('open')); return; }
     const a = e.target.closest('a');
     if (a) {
+      e.preventDefault();
       setOpen(false);
+      const id = a.getAttribute('href').slice(1);
+      if (id === 'home' || id === 'ai') { setPage(id); return; }
+      const el = document.getElementById(id);
+      if (!el) return;
+      setPage(pageOf(el), false);                                   // 另一頁的區塊：先切換頁面再捲過去
+      el.scrollIntoView();
       links.forEach(x => x.classList.toggle('on', x === a));        // 並排的區塊（Ollama／Claude）以點的那個為準
       hold = Date.now() + 1200;
     }
@@ -971,6 +937,7 @@ async function kbAsk() {
   const q = $('#kb-q').value.trim();
   if (!q || KB.busy) return;
   const model = $('#kb-model').value;
+  $('#kb-panel').hidden = false;
   KB.busy = true; $('#kb-send').disabled = true; $('#kb-send').textContent = '思考中…';
   setHTML($('#kb-answer'), `<div class="kb-a"><div class="kb-q-echo">${esc(q)}</div><p class="muted">${model === 'claude' ? '找到相關資料後交給 Claude 回答，大約 10～30 秒…' : '用本機模型回答中…'}</p></div>`);
   try {
@@ -1003,6 +970,8 @@ async function kbOpen(s) {
 safe(loadKb);
 setInterval(() => { if (!document.hidden) safe(loadKb); }, 10000);
 $('#kb-form').addEventListener('submit', e => { e.preventDefault(); kbAsk(); });
+// 問題框：單行，打長了自動變高（最多約 5 行）
+$('#kb-q').addEventListener('input', e => { const t = e.target; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight + 2, 130) + 'px'; });
 $('#kb-q').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); kbAsk(); } });
 $('#kb-model').addEventListener('change', e => api('/api/kb/model', { model: e.target.value }).catch(() => {}));
 document.addEventListener('click', async ev => {
@@ -1012,6 +981,13 @@ document.addEventListener('click', async ev => {
   switch (d.act) {
     case 'kb-cite': { const li = document.getElementById('kb-s' + d.n); if (li) { li.classList.add('flash'); li.scrollIntoView({ block: 'nearest' }); setTimeout(() => li.classList.remove('flash'), 1200); } break; }
     case 'kb-open': kbOpen(KB.cur.sources[+d.i]); break;
+    case 'kb-close': $('#kb-panel').hidden = true; break;
+    case 'kb-toggle': {
+      const pn = $('#kb-panel'), show = pn.hidden;
+      pn.hidden = !show;
+      if (show && !KB.cur) $('#kb-src').open = true;     // 還沒有回答時，直接展開資料來源與最近的問題
+      break;
+    }
     case 'kb-hist': { const h = (KB.st.history || []).find(x => x.id === +d.id); if (h) { KB.cur = h; setHTML($('#kb-answer'), kbAnswerHTML(h)); $('#kb-src').open = false; } break; }
     case 'kb-reindex': try { KB.st = { ...KB.st, ...(await api('/api/kb/reindex', {})) }; renderKb(); toast('開始重新掃描'); } catch (e) { toast(e.message, true); } break;
     case 'kb-folder-add':
@@ -1413,3 +1389,73 @@ document.addEventListener('dragend', async e => {
   if (o === ordOf(row)) return;
   await asaPost(`/api/asa/items/${id}`, { ord: o }, '順序已調整');
 });
+
+// ---------- 使用紀錄（之後調整版面用，只存在本機）----------
+// 「在看」只算：分頁在前景、視窗有焦點、最近 60 秒內有滑鼠／鍵盤／捲動。每 5 秒把時間依各區塊佔畫面的比例分下去。
+// 按鈕只記動作名稱和所在區塊，不記任何內容。整理結果：GET /api/activity?days=30
+(() => {
+  if (lsGet('activity-off') === '1') return;            // 這個瀏覽器不記錄（例如測試用的瀏覽器）
+  const TICK = 5, IDLE = 60000;
+  let lastInput = Date.now(), lastAct = '', buf = { view: {}, act: {}, page: {}, env: {} };
+  const bump = (k, key, v) => { buf[k][key] = (buf[k][key] || 0) + v; };
+  const clean = s => String(s || 'other').replace(/^sec-/, '').replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 30) || 'other';
+  const where = el => {
+    const sec = el.closest('[id^="sec-"]');
+    if (sec) return clean(sec.id);
+    if (el.closest('#music-dock')) return 'music';
+    if (el.closest('dialog')) return 'dialog';
+    if (el.closest('#toc')) return 'toc';
+    if (el.closest('header')) return 'header';
+    if (el.closest('.pagetabs')) return 'pagetabs';
+    return 'other';
+  };
+  ['mousemove', 'wheel', 'scroll', 'keydown', 'pointerdown', 'touchstart'].forEach(t =>
+    addEventListener(t, () => { lastInput = Date.now(); }, { passive: true, capture: true }));
+  const active = () => document.visibilityState === 'visible' && document.hasFocus() && Date.now() - lastInput < IDLE;
+
+  setInterval(() => {
+    if (!active()) return;
+    bump('page', document.body.dataset.page || 'home', TICK);
+    if (H.dock === 'open') bump('view', 'music', TICK);
+    if (dlg.open) { bump('view', 'dialog:' + (lastAct || 'other'), TICK); return; }
+    const vh = innerHeight, parts = [];
+    document.querySelectorAll('main [id^="sec-"]').forEach(el => {
+      if (!el.offsetParent) return;                      // 另一頁、被隱藏的區塊
+      const r = el.getBoundingClientRect();
+      const vis = Math.min(r.bottom, vh) - Math.max(r.top, 0);
+      if (vis > 0) parts.push([clean(el.id), vis]);
+    });
+    const total = parts.reduce((n, [, v]) => n + v, 0);
+    for (const [k, v] of parts) bump('view', k, +(TICK * v / total).toFixed(2));
+  }, TICK * 1000);
+
+  document.addEventListener('click', e => {
+    const a = e.target.closest('[data-act]'), link = e.target.closest('a[href]');
+    if (a) {
+      const act = clean(a.dataset.act);
+      bump('act', `${where(a)}:${act}`, 1);
+      if (!a.closest('dialog')) lastAct = act;
+    } else if (link) bump('act', `${where(link)}:link`, 1);
+  }, true);
+  document.addEventListener('submit', e => {
+    const f = e.target;
+    bump('act', `${where(f)}:submit-${clean(f.id || (f.className || '').split(' ')[0])}`, 1);
+  }, true);
+  document.addEventListener('pagechange', e => bump('act', `pagetabs:page-${clean(e.detail)}`, 1));
+
+  let envT;
+  const env = () => bump('env', `${Math.round(innerWidth / 10) * 10}x${Math.round(innerHeight / 10) * 10}`, 1);
+  env();
+  addEventListener('resize', () => { clearTimeout(envT); envT = setTimeout(env, 1500); });
+
+  const flush = () => {
+    if (!Object.values(buf).some(o => Object.keys(o).length)) return;
+    const body = JSON.stringify(buf);
+    buf = { view: {}, act: {}, page: {}, env: {} };
+    fetch('/api/activity', { method: 'POST', keepalive: true, body,
+      headers: { 'Content-Type': 'application/json', 'X-Local-Controller': '1' } }).catch(() => {});
+  };
+  setInterval(flush, 60000);
+  addEventListener('pagehide', flush);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+})();

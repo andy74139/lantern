@@ -460,7 +460,6 @@ html { scroll-behavior: smooth; }
   .toc-btn { display: none; }
   main { margin-left: 156px; margin-right: 24px; }
 }
-@media (min-width: 1660px) { main { margin-left: auto; margin-right: auto; } }
 /* 窄螢幕：左下角的「目錄」按鈕，點開再選 */
 @media (max-width: 1179px) {
   .toc { left: 16px; bottom: 16px; }
@@ -678,3 +677,57 @@ html { scroll-behavior: smooth; }
 .asa-rings { grid-template-columns: repeat(auto-fit, minmax(min(100%, 168px), 1fr)); gap: 10px; }
 .asa-rings .ring { width: 78px; height: 78px; flex: none; }
 .asa-ringcard { gap: 10px; padding: 10px; }
+
+/* ---------- 版面（2026-11-19）：首頁／AI 工作兩頁、知識庫搜尋列、寬螢幕兩欄 ---------- */
+body:not([data-page="ai"]) .pg-ai, body[data-page="ai"] .pg-home { display: none !important; }
+
+.topbar { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.pagetabs { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); flex: none; }
+.pagetab { font: inherit; font-size: 14px; padding: 6px 14px; border: none; border-radius: 7px; background: none; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.pagetab[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.pt-badge { font-size: 11.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--accent); color: var(--card); }
+
+.kb-bar { flex: 1 1 360px; min-width: 0; display: grid; gap: 8px; }
+.kb-bar .kb-ask { display: flex; gap: 6px; align-items: flex-start; }
+.kb-bar .kb-ask textarea { flex: 1; min-width: 0; resize: none; height: 38px; min-height: 38px; padding: 8px 12px; font-size: 14px; line-height: 1.45; overflow-y: auto; }
+.kb-bar .kb-ask select { height: 38px; flex: none; }
+.kb-bar .kb-ask .btn { height: 38px; flex: none; }
+@media (max-width: 640px) { .kb-bar .kb-ask { flex-wrap: wrap; } .kb-bar .kb-ask textarea { flex-basis: 100%; } }
+.kb-panel { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 12px 14px; display: grid; gap: 10px; }
+.kb-panel[hidden] { display: none; }
+.kb-panel-head { display: flex; align-items: center; gap: 8px; }
+.kb-panel-head .icon { margin-left: auto; }
+.kb-panel .kb-a:first-child { border-top: none; padding-top: 0; }
+
+.home-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 26px; align-items: start; }
+.fold-models > summary { cursor: pointer; list-style: none; }
+.fold-models > summary::-webkit-details-marker { display: none; }
+.fold-models > summary h3::before { content: '▸ '; color: var(--muted); }
+.fold-models[open] > summary h3::before { content: '▾ '; }
+.toc-list a.toc-group-link.cur { color: var(--text); }
+
+/* 寬螢幕：待辦和 ASA 並排；版面放寬 */
+@media (min-width: 1180px) { main { max-width: 1520px; } }
+@media (min-width: 1380px) { .home-cols { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); } }
+@media (min-width: 1660px) { main { margin-left: 156px; margin-right: 24px; } }
+@media (min-width: 1880px) { main { margin-left: auto; margin-right: auto; } }
+
+/* ASA 卡片變窄時（並排在右欄）：環形圖改成上下排，四個還是一列 */
+.asa-card { container: asa / inline-size; }
+@container asa (max-width: 720px) {
+  .asa-rings { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .asa-ringcard { flex-direction: column; text-align: center; padding: 10px 6px; gap: 6px; }
+  .asa-ringinfo { justify-items: center; }
+  .asa-ringlinks { justify-content: center; }
+  .asa-rings .ring { width: 72px; height: 72px; }
+  .asa-reqs-h { width: 100%; }
+}
+@container asa (max-width: 430px) { .asa-rings { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.asa-plan, .asa-plan-head { min-width: 0; }
+.asa-plan.is-closed .asa-plan-head { flex-wrap: nowrap; }
+@media (min-width: 1380px) { .home-cols .kcol { flex-basis: 235px; } }
+@media (max-width: 640px) {
+  .kb-bar .kb-ask { flex-direction: row; flex-wrap: wrap; }
+  .kb-bar .kb-ask textarea { flex: 1 1 100%; }
+  .kb-bar .kb-ask select { flex: 1; min-width: 0; }
+}

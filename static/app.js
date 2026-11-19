@@ -3,7 +3,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const S = { sys: null, ollama: null, recs: null, rec: null, tasks: [], tasksError: null, claude: null, runs: [],
-            open: new Set(), logs: {}, busy: new Set(), claudeLimit: 30, offline: false };
+            open: new Set(), logs: {}, busy: new Set(), claudeLimit: 8, runsAll: false, offline: false };
 
 // ---------- 小工具 ----------
 const lastHTML = new WeakMap();
@@ -190,7 +190,18 @@ function visibleActions(t) {
   return t.actions.filter(a => !(a.when === 'running' && !t.running) && !(a.when === 'stopped' && t.running));
 }
 
+// 「AI 工作」分頁上的數字：正在跑的常用工作與錄音
+function updateAiBadge() {
+  const n = (S.tasks || []).filter(t => t.running).length
+    + ((S.recs && S.recs.recordings) || []).filter(r => r.status === 'running').length;
+  const b = $('#ai-badge');
+  if (!b) return;
+  b.hidden = !n;
+  b.textContent = n ? `${n} 執行中` : '';
+}
+
 function renderTasks() {
+  updateAiBadge();
   const el = $('#tasks');
   if (S.tasksError) { setHTML(el, `<div class="banner">${esc(S.tasksError)}</div>`); return; }
   if (!S.tasks.length) { setHTML(el, `<p class="muted">還沒有定義任何工作。</p>`); return; }
@@ -289,6 +300,7 @@ function renderOllama() {
         <div class="meta">佔用 ${gb(m.size_vram || m.size)}・上下文 ${(m.context_length || 0).toLocaleString()}・${expiresText(m.expires_at)}</div></div>
       <button class="btn sm" data-act="ollama-unload" data-model="${esc(m.name)}" ${S.busy.has('unload:' + m.name) ? 'disabled' : ''}>卸載</button>
     </div>`).join('') : `<p class="muted pad small">${o.up ? '目前沒有模型載入，GPU 記憶體是空的。' : '—'}</p>`);
+  $('#ollama-models-n').textContent = o.models.length ? `${o.models.length} 個` : '';
   setHTML($('#ollama-models'), o.models.length ? o.models.map(m => {
     const loading = S.busy.has('load:' + m.name);
     return `<div class="item">
@@ -417,7 +429,7 @@ function renderClaude() {
       ${s.last_prompt ? `<div class="s-last">最後提問：${esc(s.last_prompt)}</div>` : ''}
     </button>`).join('');
   if (!shown.length) h = `<p class="muted pad">${q ? '沒有符合的對話。' : '還沒有對話紀錄。'}</p>`;
-  if (list.length > shown.length) h += `<div class="pad"><button class="btn" data-act="claude-more">再顯示 30 筆（共 ${list.length} 筆）</button></div>`;
+  if (list.length > shown.length) h += `<div class="pad"><button class="btn" data-act="claude-more">再顯示 20 筆（共 ${list.length} 筆）</button></div>`;
   setHTML($('#claude-list'), h);
 }
 
@@ -453,14 +465,15 @@ function renderRuns() {
   if (!S.runs.length) { setHTML($('#runs'), '<p class="muted pad small">從這裡執行過的工作會列在這裡，可以查看輸出或再執行一次。</p>'); return; }
   setHTML($('#runs'), `<div class="table-wrap"><table>
     <tr><th>時間</th><th>工作</th><th>耗時</th><th>結果</th><th></th></tr>
-    ${S.runs.map(r => `<tr>
+    ${(S.runsAll ? S.runs : S.runs.slice(0, 5)).map(r => `<tr>
       <td class="num">${clock(r.started_at * 1000)}</td>
       <td class="wide">${esc(r.task_name)}・${esc(r.action_label)}</td>
       <td class="num">${r.ended_at ? dur(r.ended_at - r.started_at) : r.running ? dur(Date.now() / 1000 - r.started_at) : '—'}</td>
       <td>${runResult(r)}</td>
       <td><button class="btn sm" data-act="run-show" data-id="${r.id}">輸出</button>
           <button class="btn sm" data-act="task-action" data-task="${esc(r.task_id)}" data-action="${esc(r.action_id)}">再執行</button></td>
-    </tr>`).join('')}</table></div>`);
+    </tr>`).join('')}</table></div>
+    ${S.runs.length > 5 ? `<div class="pad"><button class="btn sm" data-act="runs-all">${S.runsAll ? '只顯示最近 5 筆' : `顯示全部（${S.runs.length} 筆）`}</button></div>` : ''}`);
 }
 
 // ---------- 錄音整理 ----------
@@ -837,7 +850,7 @@ async function loadTasks() {
   renderTasks();
 }
 async function loadClaude() { S.claude = await api('/api/claude/sessions'); renderClaude(); renderChips(); }
-async function loadRecordings() { S.recs = await api('/api/recordings'); renderRecs(); }
+async function loadRecordings() { S.recs = await api('/api/recordings'); renderRecs(); updateAiBadge(); }
 async function loadRuns() { S.runs = (await api('/api/runs')).runs; renderRuns(); }
 
 const LOOPS = [[loadSystem, 5000], [loadOllama, 5000], [loadTasks, 10000], [loadRecordings, 4000], [loadClaude, 30000], [loadRuns, 15000]];
@@ -886,7 +899,8 @@ document.addEventListener('click', async ev => {
     case 'copy':
       try { await navigator.clipboard.writeText(d.text); toast('已複製'); } catch { toast('無法複製，請手動選取', true); }
       break;
-    case 'claude-more': S.claudeLimit += 30; renderClaude(); break;
+    case 'claude-more': S.claudeLimit += 20; renderClaude(); break;
+    case 'runs-all': S.runsAll = !S.runsAll; renderRuns(); break;
     case 'rec-pick': $('#rec-file').click(); break;
     case 'rec-open': openRecording(d.id); break;
     case 'rec-tab': S.recEdit = null; recPane(d.tab); break;
@@ -954,7 +968,7 @@ document.addEventListener('click', async ev => {
   }
 });
 $('#pull-form').addEventListener('submit', pullModel);
-$('#claude-q').addEventListener('input', () => { S.claudeLimit = 30; renderClaude(); });
+$('#claude-q').addEventListener('input', () => { S.claudeLimit = 8; renderClaude(); });
 
 // 錄音：拖放與選檔
 const drop = $('#rec-drop');
