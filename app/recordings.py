@@ -147,6 +147,31 @@ async def create(name, stream, model, language, hold=False, asr=None):
     return meta
 
 
+def create_from_file(path, name, model, language, hold=False, asr=None, extra=None):
+    """把本機的音檔（例如語音備忘錄的複本）搬進錄音資料夾並排進佇列。"""
+    path = Path(path)
+    name = Path(name or path.name).name[:200] or "錄音"
+    ext = re.sub(r"[^a-z0-9]", "", path.suffix.lower())[:6] or "bin"
+    size = path.stat().st_size
+    if not size:
+        raise ValueError("檔案是空的")
+    rid = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2)
+    d = DIR / rid
+    d.mkdir()
+    try:
+        shutil.move(str(path), d / f"source.{ext}")
+    except BaseException:
+        shutil.rmtree(d, ignore_errors=True)
+        raise
+    meta = {"id": rid, "name": name, "title": None, "created": time.time(), "size": size,
+            "status": "queued", "stage": None, "progress": None, "detail": None, "error": None,
+            "source_file": f"source.{ext}", "summary_model": model or None,
+            "language": language if language in LANGS else None, "hold": bool(hold), "asr": asr or None,
+            **(extra or {})}
+    _write(d, meta)
+    return meta
+
+
 def detail(rid):
     d = _folder(rid)
     m = _read(d)

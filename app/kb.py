@@ -27,9 +27,9 @@ DB_PATH = db.DATA / "kb.db"
 REC_DIR = db.DATA / "recordings"
 DEFAULTS = {
     "folders": [],
-    "embed_model": "qwen3-embedding:0.6b",
+    "embed_model": "embeddinggemma",
     "answer_model": "claude",
-    "local_model": "qwen2.5:7b",
+    "local_model": "gemma4:12b",
     "claude_model": "sonnet",
     "extensions": [".md", ".txt", ".pdf", ".docx", ".pptx", ".html", ".htm", ".csv"],
     "max_file_mb": 30,
@@ -38,7 +38,11 @@ DEFAULTS = {
 CHUNK = 500          # 每段大約幾個字
 OVERLAP = 80         # 相鄰段落重疊的字數，避免一句話被切斷後找不到
 TOP_K = 8
-QUERY_PREFIX = "Instruct: Given a question, retrieve passages that help answer it\nQuery: "
+# 向量模型要求的提示格式：(問題前綴, 段落前綴)。沒列到的模型不加前綴。
+EMBED_PROMPTS = {
+    "embeddinggemma": ("task: search result | query: ", "title: none | text: "),
+    "qwen3-embedding": ("Instruct: Given a question, retrieve passages that help answer it\nQuery: ", ""),
+}
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".idea", ".Trash", "Library"}
 
 _lock = threading.RLock()
@@ -80,7 +84,19 @@ def init():
         create index if not exists chunks_doc on chunks(doc_id);
         create virtual table if not exists chunks_fts using fts5(text, content='chunks', content_rowid='id', tokenize='trigram');
         create table if not exists qa (id integer primary key, q text, answer text, sources text, model text, at real);
+        create table if not exists meta (k text primary key, v text);
         """)
+        # 舊版的索引沒有記錄向量模型：有資料的話就是當時的預設 qwen3-embedding:0.6b
+        if not c.execute("select 1 from meta where k='embed_model'").fetchone() \
+                and c.execute("select 1 from chunks where emb is not null limit 1").fetchone():
+            c.execute("insert into meta values ('embed_model', 'qwen3-embedding:0.6b')")
+
+
+def _index_model():
+    """目前索引裡的向量是哪個模型產生的（None＝還沒有向量）。"""
+    with _conn() as c:
+        r = c.execute("select v from meta where k='embed_model'").fetchone()
+    return r["v"] if r else None
 
 
 # ---------------- 取出文字 ----------------
@@ -173,9 +189,13 @@ def recording_chunks(folder):
 
 
 # ---------------- 向量 ----------------
+def _embed_prompts(model):
+    return EMBED_PROMPTS.get(model.split(":")[0], ("", ""))
+
+
 def embed(texts, model, query=False):
-    if query:
-        texts = [QUERY_PREFIX + t for t in texts]
+    prefix = _embed_prompts(model)[0 if query else 1]
+    texts = [prefix + t for t in texts]
     out = []
     for i in range(0, len(texts), 32):
         try:
@@ -260,6 +280,9 @@ def reindex(force=False):
         _status.update(state="indexing", done=0, total=0, current=None, error=None)
     try:
         found = _sources()
+        if _index_model() not in (None, cfg["embed_model"]):
+            force = True                                # 換了向量模型：舊向量不能混用，全部重建
+            _status.update(current="換向量模型，全部重建")
         with _conn() as c:
             have = {r["ref"]: r["mtime"] for r in c.execute("select ref, mtime from docs")}
         todo = [(ref, v) for ref, v in found.items() if force or have.get(ref) != v[2]]
@@ -289,6 +312,9 @@ def reindex(force=False):
             with _lock, _conn() as c:
                 _store(c, ref, source, path, title, mtime, pieces, vecs, error)
             changed = True
+        if force or changed:
+            with _lock, _conn() as c:
+                c.execute("insert or replace into meta values ('embed_model', ?)", (cfg["embed_model"],))
         if changed:
             _matrix = None
         _status.update(state="idle", done=len(todo), current=None, last_run=time.time())
@@ -305,7 +331,7 @@ def status():
     cfg = config()
     return {**_status, "recordings": docs.get("recording", 0), "files": docs.get("file", 0), "chunks": chunks,
             "errors": errors, "folders": cfg["folders"], "answer_model": cfg["answer_model"],
-            "embed_model": cfg["embed_model"]}
+            "embed_model": cfg["embed_model"], "index_model": _index_model()}
 
 
 # ---------------- 搜尋 ----------------
@@ -314,6 +340,10 @@ def _load_matrix():
     if _matrix is None:
         with _conn() as c:
             rows = c.execute("select id, emb from chunks where emb is not null").fetchall()
+        if rows:                                  # 重建到一半時可能混著兩種長度的向量：只留最多的那種
+            sizes = [len(r["emb"]) for r in rows]
+            size = max(set(sizes), key=sizes.count)
+            rows = [r for r in rows if len(r["emb"]) == size]
         ids = np.array([r["id"] for r in rows], dtype=np.int64)
         mat = np.frombuffer(b"".join(r["emb"] for r in rows), dtype=np.float32).reshape(len(rows), -1) if rows else np.zeros((0, 1), np.float32)
         _matrix = (ids, mat)
@@ -335,7 +365,7 @@ def search(q, k=TOP_K):
     cfg = config()
     ranks = {}
     ids, mat = _load_matrix()
-    if len(ids):
+    if len(ids) and _index_model() == cfg["embed_model"]:     # 重建索引中（向量模型不一致）就先只用關鍵字
         qv = embed([q], cfg["embed_model"], query=True)[0]
         sims = mat @ qv
         for r, i in enumerate(np.argsort(-sims)[:30]):

@@ -1,7 +1,7 @@
 {
   "folders": [],
-  "embed_model": "qwen3-embedding:0.6b",
+  "embed_model": "embeddinggemma",
   "answer_model": "claude",
-  "local_model": "qwen2.5:7b",
+  "local_model": "gemma4:12b",
   "claude_model": "sonnet"
 }

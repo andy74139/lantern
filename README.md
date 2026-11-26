@@ -1,4 +1,4 @@
-# 首頁（本機 AI 控制台）
+# Lantern
 
 開機後的首頁：天氣、今天與接下來 7 天的行程、待辦事項、YouTube Music 常播清單；
 下方是這台 Mac 的 AI 工作（常用工作、錄音整理、Ollama、Claude 對話）。
@@ -9,10 +9,12 @@ repo 裡不含個人設定、執行資料和語音模型（見 `.gitignore`）�
 
 ```bash
 python3 -m venv .venv && .venv/bin/python -m pip install fastapi "uvicorn[standard]" httpx icalendar recurring-ical-events opencc-python-reimplemented numpy pypdf
-ollama pull qwen3-embedding:0.6b                  # 知識庫的向量模型
+ollama pull embeddinggemma                        # 知識庫的向量模型（Google）
+ollama pull gemma4:12b                            # 本機整理／回答用（Google，選用）
 cp config/home.example.json config/home.json      # 地點、日曆
 cp config/tasks.example.json config/tasks.json    # 常用工作
 cp config/kb.example.json config/kb.json          # 知識庫
+cp config/market.example.json config/market.json  # 市場分頁追蹤的股票與新聞關鍵字
 mkdir -p models/breeze
 curl -L -o models/ggml-large-v3-turbo.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
 curl -L -o models/ggml-silero-v5.1.2.bin https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin
@@ -57,11 +59,11 @@ Google 連結要另外建立自己的用戶端（首頁按「連結 Google」照
 | `open_on_login` | 開機後是否自動打開首頁 |
 | `todo_notifications` | 有時間的待辦到期時跳 macOS 通知（預設開；改成 `false` 關閉） |
 
-- **兩個頁面**：上方切換「首頁」與「AI 工作」（網址 `#ai` 直接開 AI 工作；有工作或錄音正在跑時，分頁上會顯示「N 執行中」）。
+- **三個頁面**：上方切換「首頁」「市場」「AI 工作」（網址 `#ai`、`#market` 直接開那一頁；有工作或錄音正在跑時，分頁上會顯示「N 執行中」）。
   - 首頁：知識庫搜尋列、一週行程（今天起 7 天，每天附天氣）、待辦看板、ASA 準備進度。視窗寬度 1380 以上時，待辦和 ASA 左右並排。
   - AI 工作：錄音整理、常用工作、Ollama（已安裝的模型預設收合）與 Claude 對話（先顯示 8 筆）、最近執行（先顯示 5 筆）。
+  - 市場：股價、走勢圖、AI 與財經新聞（見下方「市場」）。
 - **知識庫搜尋列**：最上面輸入問題按 Enter；回答在搜尋列下方展開，✕ 收起，⋯ 看資料來源與最近的問題。
-- **目錄**：寬螢幕固定在左邊，窄螢幕在左下角的「☰ 目錄」；點另一頁的區塊會自動切換頁面再捲過去。
 - 音樂收在右上角的「♪ 音樂」。
 - **天氣**：Open-Meteo（免金鑰），每 30 分鐘更新，7 天預報；降雨機率取白天 8–20 點的最大值，今天和明天會提醒帶傘。
 - **行事曆**：每 10 分鐘更新。沒網路時顯示上次的資料，並標示「離線」。
@@ -94,6 +96,7 @@ Google 連結要另外建立自己的用戶端（首頁按「連結 Google」照
 - 完成或刪除後，提示框裡可以按「復原」。
 - **看板**：卡片可以拖到別欄（＝移到那個清單，會同步到 Google）或上下拖拉排序（排序只存在這台電腦）。
   每欄下方可以直接新增（一樣能寫「明天下午3點」）；最右邊「＋ 新增清單」、欄位的 ⋯ 可以改名或刪除清單（會同步到 Google；還有未完成待辦的清單不能刪）。
+  拖拉欄位的標題列可以把整個清單左右移動（或用欄位 ⋯ 的「往左移／往右移」）；Google Tasks 沒有清單排序，所以這個順序只存在這台電腦。
 - 快捷鍵：`N` 新增（跳到第一欄的新增框）、`/` 搜尋、`M` 音樂、`Esc` 關閉。
 - 有時間的待辦到期時會跳 macOS 通知（超過 15 分鐘的不補發）；分頁標題會顯示今天加過期的數量。
 
@@ -119,7 +122,7 @@ Google 連結要另外建立自己的用戶端（首頁按「連結 Google」照
 
 ## ASA 準備進度
 
-首頁的「ASA 準備進度」（目錄裡也有）：
+首頁的「ASA 準備進度」：
 
 - **環形圖**：完整進度、FAM、ALTAM、PA，旁邊是考試倒數和學習頁連結（「設定」可以改考試日、連結網址和連結文字，只接受 https:// 網址）。
   完整進度＝考試（P、FM、FAM、SRM、PA、ALTAM 六科）佔 70%＋其他項目（ATPA、VEE、FAP、APC）佔 30%；已通過算滿，準備中的考科依讀書進度完成的比例計入。
@@ -129,16 +132,36 @@ Google 連結要另外建立自己的用戶端（首頁按「連結 Google」照
   預設收合，只顯示各科的下一項；點「讀書計畫」展開（會記住）。點項目名稱可以設定這一項的學習頁連結。
 - SOA 改版時更新 `app/asa.py` 的 `SYLLABUS`。資料存在 `data/controller.db`（不會進 git）。
 
+## 市場
+
+上方「市場」分頁：追蹤的股票報價、走勢圖、AI／財經新聞。
+
+- **報價卡**：現價、漲跌（紅漲綠跌，附 ▲▼）、今天的小走勢（虛線是昨收）、盤中或收盤時間。點一張卡片，下面的走勢圖就換成那一檔。
+  每一檔下面的小卡是它的**參考指標**（例如槓桿 ETF 對應的原型 ETF），一樣可以點開走勢圖。
+- **走勢圖**：區間 1日／5日／1月／3月／6月／今年／1年／5年；收盤價是最粗的那條線，均線較細較淡；滑鼠移到圖上（或點圖後用 ← →）看每一天的收盤價、均線和漲跌幅。
+  - 均線：週線（5 日）、月線（20 日）、季線（60 日）、半年線（120 日）、年線（240 日），點按鈕開關，會記住；按鈕上顯示最新的均線值。
+  - 1日、5日是盤中走勢（5 分鐘、15 分鐘一點），沒有均線；1日會畫出昨收。
+- **新聞**：最上面 3 則附圖片和摘要（來自 Bing 新聞，取最新、有圖的），下面是 Google 新聞近 3 天，依時間排序，先顯示 10 則。
+  縮圖由這台電腦代抓並快取在 `data/cache/news_img/`（3 天後清掉），瀏覽器不會直接連到 Bing；點標題直接開原文網站。
+  Bing 的 RSS 不支援 OR，所以搜尋字裡用 OR 分開的詞會各查一次（最多 3 個）；也可以另外設 `image_query`。
+- **資料來源**：股價是 Yahoo Finance 的公開圖表資料，新聞是 Google 新聞與 Bing 新聞的 RSS，都不用帳號或金鑰；送出去的只有股票代號和新聞關鍵字。
+- **更新**：只在看「市場」分頁時更新（報價與盤中走勢每分鐘、日線每 10 分鐘、新聞每 15 分鐘）；切到別頁或視窗在背景時不抓。新聞存在 `data/cache/market_news.json`，抓失敗時沿用上次的結果、5 分鐘後再試。
+- **設定** `config/market.json`（個人設定，不進 git；範本 `market.example.json`）：
+  - `symbols`：`{"symbol": "代號", "name": "顯示名稱", "ref": {"symbol": "參考代號", "name": "名稱"}}`（`ref` 可省略）。代號用 Yahoo Finance 的寫法：台股加 `.TW`（上櫃 `.TWO`），美股直接寫代號。
+  - `news`：`{"key": "ai", "title": "AI", "query": "AI OR 人工智慧"}`，`query` 是 Google 新聞的搜尋字，可以用 OR。
+  - 改完重新整理頁面就生效（新聞最多等 15 分鐘）。
+
 ## 知識庫
 
 在首頁最上面的知識庫搜尋列問問題，會從你的**錄音**（逐字稿與摘要，自動收錄）和**加入的資料夾**（PDF、Word、PowerPoint、Markdown、文字檔、網頁）找出相關段落，再請模型回答，每個說法都附出處 `[1]`、`[2]`。
 
 - 點出處：錄音會打開並跳到那一句（逐字稿標亮、播放器移到那個時間）；文件會用預設的 App 開啟，並告訴你在第幾頁／第幾張投影片。
-- 搜尋同時用語意（本機的向量模型 `qwen3-embedding:0.6b`，中英文可以互相找到）與關鍵字（人名、術語），再合併排序。
-- 回答可以選 **Claude**（品質較好，找到的相關段落會傳給 Anthropic）或 **本機模型**（完全不離開這台電腦）。
+- 搜尋同時用語意（本機的向量模型 `embeddinggemma`，中英文可以互相找到）與關鍵字（人名、術語），再合併排序。
+- 回答可以選 **Claude**（品質較好，找到的相關段落會傳給 Anthropic）或 **本機模型**（預設 `gemma4:12b`，完全不離開這台電腦）。
 - 索引存在 `data/kb.db`，每 10 分鐘自動更新；加入或移除資料夾、按「重新掃描」會立刻更新。移除資料夾不會刪除你的檔案。
 - 設定在 `config/kb.json`（資料夾清單、模型）；不會進 git，範本是 `config/kb.example.json`。
-- 第一次使用前要下載向量模型：`ollama pull qwen3-embedding:0.6b`。
+- 第一次使用前要下載向量模型：`ollama pull embeddinggemma`。
+- 換向量模型（改 `embed_model`）後，索引會自動整個重建；重建完成前只用關鍵字搜尋。
 
 ## 使用紀錄（調整版面用）
 
@@ -200,7 +223,7 @@ Google 連結要另外建立自己的用戶端（首頁按「連結 Google」照
 | `actions[].inputs` | 執行前要填的欄位；`type` 為 `file`／`folder` 時會有「選擇…」按鈕 |
 | `actions[].timeout` | 非背景指令的秒數上限，預設 120 |
 | `running.pidfile` | 工作自己寫的 PID 檔，用來判斷是否執行中 |
-| `running.process` | 沒有 PID 檔時，用程序名稱判斷是否執行中（`pgrep -f`），例如 `mlx_vlm.train` |
+| `running.process` | 沒有 PID 檔時，用程序名稱判斷是否執行中（正規表示式），例如 `mlx_vlm.train`。只比對程序實際執行的程式（執行檔、直譯器後面的腳本或 `-m` 模組），指令文字裡剛好提到這個名稱的 shell、grep 不算 |
 | `status.cmd` | 查詢狀態的指令，輸出會顯示在卡片上（`every` 秒更新一次） |
 | `progress` | 從記錄檔最後一筆符合 `regex` 的文字取進度；`done`／`total`／`note` 是擷取群組的編號。`note_format`（例如 `"剩 {3}・loss {4}"`）可以組合多個群組，`note_prefix` 是前面的字（預設「預估剩 」） |
 | `progress.file`、`log` | 記錄檔；可以用萬用字元（例如 `logs/*.log`），會取最近修改的那個，`exclude`／`log_exclude` 排除符合的檔名。進度條用 `\r` 覆寫的行會只留最後狀態 |
@@ -221,6 +244,27 @@ Google 連結要另外建立自己的用戶端（首頁按「連結 Google」照
 
 一次只處理一筆，其餘排隊。有常用工作（例如掃描）在執行時，可以選「等其他工作結束後自動開始」。
 點摘要或逐字稿裡的時間會跳到錄音的那個位置。
+
+### 語音備忘錄自動偵測
+
+iPhone 的「語音備忘錄」同步到這台 Mac 之後，首頁會自動發現新錄音，跳出視窗問你要不要整理：勾選要整理的錄音、選轉錄與整理用的模型，按「開始整理」就排進佇列；「略過」的不會再問；「稍後再說」可以之後從「錄音整理」上方的「選擇」再打開。同時也會跳一則 macOS 通知（不想要的話在 `config/recordings.json` 設 `"voice_memo_notify": false`）。
+
+運作方式：
+
+- 語音備忘錄的資料夾受 macOS 保護，要「完整磁碟取用權限」才能讀。權限只給一支只做這件事的小程式 `bin/voicememo-sync`（原始碼 `tools/voicememo_sync.swift`），不給 Python，所以其他 Python 腳本不會因此能讀你的整顆硬碟。
+- 小程式每分鐘執行一次：只讀語音備忘錄的資料夾，把新錄音（含標題、錄音時間、長度）複製到 `data/voicememos/inbox/`，不修改、不刪除原始錄音，也不連網路。
+- 第一次成功執行時只收最近一天的錄音，更早的不會打擾你。檔案還在同步中的會等下一輪。
+
+設定步驟（一次就好）：
+
+```bash
+./voicememos.sh install
+```
+
+接著到「系統設定 → 隱私權與安全性 → 完整磁碟取用權限」，按 ＋，在選檔視窗按 ⌘⇧G 貼上 `bin/voicememo-sync` 的完整路徑（「錄音整理」上方會顯示），加入後打開開關。一分鐘內「錄音整理」上方會變成「語音備忘錄：自動偵測中」。
+
+- 狀態：`./voicememos.sh status`；立刻檢查一次：`./voicememos.sh run`；停用：`./voicememos.sh uninstall`（再到完整磁碟取用權限把它移除）。
+- 改了 `tools/voicememo_sync.swift` 重新安裝時才會重新編譯；重新編譯後 macOS 會當成新程式，要重新給一次權限。
 
 ### 修改與重新整理
 

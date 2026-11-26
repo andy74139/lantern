@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import activity, asa, claude_sessions, claude_usage, db, google, icloud, kb, home, music, ollama, recordings, system, tasks, todos
+from . import activity, asa, market, claude_sessions, claude_usage, db, google, icloud, kb, home, music, ollama, recordings, system, tasks, todos, voicememos
 
 STATIC = db.ROOT / "static"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
@@ -27,6 +27,7 @@ kb.start()
 asa.init()
 activity.init()
 icloud.start()
+voicememos.start_watcher()
 
 
 @app.middleware("http")
@@ -120,6 +121,37 @@ class SessionReq(BaseModel):
 @app.get("/api/claude/sessions")
 async def api_claude_sessions():
     return await run_in_threadpool(claude_sessions.list_sessions)
+
+
+@app.get("/api/market/quotes")
+async def api_market_quotes():
+    return await run_in_threadpool(market.quotes)
+
+
+@app.get("/api/market/chart/{symbol}")
+async def api_market_chart(symbol: str, range: str = "6mo"):
+    try:
+        return await run_in_threadpool(market.chart, symbol, range)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(502, f"抓不到股價：{str(e)[:200]}")
+
+
+@app.get("/api/market/newsimg/{img_id}")
+async def api_market_newsimg(img_id: str):
+    try:
+        f = await run_in_threadpool(market.news_image, img_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception:
+        raise HTTPException(404, "沒有圖片")
+    return FileResponse(f, media_type="image/jpeg", headers={"Cache-Control": "max-age=86400"})
+
+
+@app.get("/api/market/news")
+async def api_market_news():
+    return await run_in_threadpool(market.news)
 
 
 @app.get("/api/version")
@@ -236,7 +268,35 @@ class SummaryEdit(BaseModel):
 
 @app.get("/api/recordings")
 async def api_recordings():
-    return await run_in_threadpool(recordings.list_all)
+    d = await run_in_threadpool(recordings.list_all)
+    d["voice_memos"] = await run_in_threadpool(voicememos.status)
+    return d
+
+
+class VoiceMemoReq(BaseModel):
+    files: list[str]
+    model: str = ""
+    language: str = ""
+    hold: bool = False
+    asr: str = ""
+
+
+@app.post("/api/voicememos/start")
+async def api_voicememos_start(req: VoiceMemoReq):
+    try:
+        return await run_in_threadpool(voicememos.start, req.files, req.model, req.language, req.hold, req.asr)
+    except KeyError as e:
+        raise HTTPException(404, f"收件匣裡沒有這個錄音：{e}")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/voicememos/skip")
+async def api_voicememos_skip(req: VoiceMemoReq):
+    try:
+        return await run_in_threadpool(voicememos.skip, req.files)
+    except KeyError as e:
+        raise HTTPException(404, f"收件匣裡沒有這個錄音：{e}")
 
 
 @app.post("/api/recordings")
@@ -561,6 +621,15 @@ async def api_list_create(req: ListReq):
         return await run_in_threadpool(todos.create_list, req.title)
     except Exception as e:
         raise HTTPException(400, str(e))
+
+
+class ListOrderReq(BaseModel):
+    ids: list[str] = []
+
+
+@app.post("/api/todos/lists/order")
+async def api_list_order(req: ListOrderReq):
+    return await run_in_threadpool(todos.set_list_order, req.ids[:200])
 
 
 @app.post("/api/todos/lists/{lid}/rename")

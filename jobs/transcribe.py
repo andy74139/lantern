@@ -23,7 +23,7 @@ DEFAULTS = {
     "traditional_chinese": True,
     "initial_prompt": "以下是繁體中文的錄音逐字稿，請使用正確的標點符號。",
     "glossary": [],
-    "summary_model": "qwen2.5:7b",
+    "summary_model": "gemma4:12b",
     "num_ctx": 16384,
     "asr": "turbo",
     "asr_models": {},
@@ -521,7 +521,7 @@ class Summarizer:
         text = re.sub(r"^.*?</think>", "", text, flags=re.S) if "</think>" in text else text
         text = re.sub(r"<think>.*$", "", text, flags=re.S).strip()        # 思考到額度用完、沒有結尾標記
         if not text:
-            raise RuntimeError(f"{self.model} 沒有產生內容" + ("，它把輸出額度都用在思考上了。請改用不會思考的模型（例如 qwen2.5:7b）再整理一次。"
+            raise RuntimeError(f"{self.model} 沒有產生內容" + ("，它把輸出額度都用在思考上了。請換一個模型（例如 Claude）再整理一次。"
                                                         if self.thinking else "。請換一個模型再整理一次。"))
         return text
 

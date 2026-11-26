@@ -518,7 +518,7 @@ const modelName = v => v === 'claude' ? 'Claude' : v;
 function modelOptions(selected) {
   const o = S.ollama ? S.ollama.models : [];
   return (S.recs && S.recs.claude ? `<option value="claude" ${selected === 'claude' ? 'selected' : ''}>${CLAUDE_LABEL}</option>` : '')
-    + o.map(m => `<option value="${esc(m.name)}" ${m.name === selected ? 'selected' : ''}>${esc(recModelLabel(m))}</option>`).join('');
+    + o.filter(m => !m.capabilities || m.capabilities.includes('completion')).map(m => `<option value="${esc(m.name)}" ${m.name === selected ? 'selected' : ''}>${esc(recModelLabel(m))}</option>`).join('');
 }
 
 const asrOptions = selected => ((S.recs && S.recs.asr_models) || [])
@@ -628,6 +628,82 @@ async function uploadRecordings(files) {
       toast(`${f.name}：${e.message}`, true);
     }
   }
+  safe(loadRecordings);
+}
+
+// ---------- 語音備忘錄：同步小幫手複製進來的新錄音，問要不要整理 ----------
+const VM_SETTINGS = 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles';
+const vmSeen = () => { try { return new Set(JSON.parse(lsGet('vm-seen') || '[]')); } catch { return new Set(); } };
+
+function renderVmBar() {
+  const v = S.recs && S.recs.voice_memos;
+  if (!v) return;
+  const n = v.pending.length;
+  const more = n ? ` <strong>${n} 筆新錄音等你決定</strong> <button class="btn sm primary" data-act="vm-open">選擇</button>` : '';
+  let h;
+  if (v.state === 'ok') h = `<span class="dot ok"></span>語音備忘錄：自動偵測中<span class="muted">（${v.last_run ? rel(v.last_run * 1000) + '檢查過' : ''}）</span>${more}`;
+  else if (v.state === 'no_permission') h = `<span class="dot warn"></span>語音備忘錄：小幫手還沒有讀取權限。到「完整磁碟取用權限」按 ＋ 加入 <code>${esc(v.bin)}</code>
+      <a class="btn sm" href="${VM_SETTINGS}">打開系統設定</a>${more}`;
+  else if (v.state === 'not_installed') h = `<span class="dot"></span><span class="muted">語音備忘錄自動偵測沒有開啟（在專案資料夾執行 <code>./voicememos.sh install</code>）</span>${more}`;
+  else if (v.state === 'waiting') h = `<span class="dot"></span>語音備忘錄：等小幫手第一次執行…${more}`;
+  else if (v.state === 'stale') h = `<span class="dot warn"></span>語音備忘錄：小幫手${v.last_run ? ' ' + rel(v.last_run * 1000) + '之後' : ''}就沒有執行了（<code>./voicememos.sh status</code> 看看）${more}`;
+  else h = `<span class="dot bad"></span>語音備忘錄：${esc(v.error || '小幫手出錯')}${more}`;
+  setHTML($('#vm-bar'), h);
+}
+
+/** 有沒看過的新錄音就跳出詢問（一筆只自動跳一次；之後從「錄音整理」的「選擇」再打開）。 */
+function maybePromptVm() {
+  const v = S.recs && S.recs.voice_memos;
+  if (!v || !v.pending.length || dlg.open || document.hidden) return;
+  const seen = vmSeen();
+  if (v.pending.every(x => seen.has(x.file))) return;
+  lsSet('vm-seen', JSON.stringify(v.pending.map(x => x.file)));     // 只記還在收件匣裡的
+  openVmDlg();
+}
+
+function openVmDlg() {
+  const v = S.recs && S.recs.voice_memos;
+  if (!v || !v.pending.length) { toast('沒有等你決定的語音備忘錄'); return; }
+  const fmt = t => t ? clock(t * 1000) : '';
+  const rows = v.pending.map(x => `<label class="vm-item"><input type="checkbox" data-vm="${esc(x.file)}" checked>
+      <span class="grow"><span class="title">${esc(x.title)}</span>
+      <span class="muted small">${fmt(x.recorded_at)}${x.duration ? `・${hms(x.duration)}` : ''}</span></span></label>`).join('');
+  openDlg(v.pending.length > 1 ? `${v.pending.length} 筆新的語音備忘錄` : '新的語音備忘錄', `
+    <p class="muted small" style="margin-bottom:8px">從 iPhone 同步過來的錄音。要轉成逐字稿並整理重點嗎？略過的不會再問，語音備忘錄 App 裡的原始錄音都不會動到。</p>
+    <div class="vm-list">${rows}</div>
+    <div class="drop-opts small vm-opts">
+      <label>轉錄 <select id="vm-asr">${asrOptions($('#rec-asr').value)}</select></label>
+      <label>整理用的模型 <select id="vm-model">${modelOptions($('#rec-model').value)}</select></label>
+      <label>語言 <select id="vm-lang">${$('#rec-lang').innerHTML}</select></label>
+    </div>`,
+    `<button class="btn" data-act="dlg-close">稍後再說</button>
+     <button class="btn" data-act="vm-skip">略過勾選的</button>
+     <button class="btn primary" data-act="vm-start">開始整理勾選的</button>`);
+  $('#vm-lang').value = $('#rec-lang').value;
+}
+
+const vmChecked = () => [...document.querySelectorAll('#dlg-body [data-vm]')].filter(i => i.checked).map(i => i.dataset.vm);
+
+async function vmDecide(act) {
+  const files = vmChecked();
+  if (!files.length) { toast('沒有勾選任何錄音', true); return; }
+  if (act === 'skip') {
+    closeDlg('');
+    try { await api('/api/voicememos/skip', { files }); toast(`已略過 ${files.length} 筆`); }
+    catch (e) { toast(e.message, true); }
+    safe(loadRecordings);
+    return;
+  }
+  const model = $('#vm-model').value, language = $('#vm-lang').value, asr = $('#vm-asr').value;
+  closeDlg('');
+  if (!S.recs.ready) { toast('還不能轉錄：' + S.recs.problems.join('、'), true); return; }
+  if (model && model !== 'claude' && !await memoryGuard(model, `要用 ${model} 整理錄音嗎？`, '仍要使用')) return;
+  const when = await askWhen();
+  if (!when) return;
+  try {
+    await api('/api/voicememos/start', { files, model, language, asr, hold: when.hold });
+    toast(`已加入錄音整理：${files.length} 筆`);
+  } catch (e) { toast(e.message, true); }
   safe(loadRecordings);
 }
 
@@ -850,7 +926,7 @@ async function loadTasks() {
   renderTasks();
 }
 async function loadClaude() { S.claude = await api('/api/claude/sessions'); renderClaude(); renderChips(); }
-async function loadRecordings() { S.recs = await api('/api/recordings'); renderRecs(); updateAiBadge(); }
+async function loadRecordings() { S.recs = await api('/api/recordings'); renderRecs(); renderVmBar(); updateAiBadge(); maybePromptVm(); }
 async function loadRuns() { S.runs = (await api('/api/runs')).runs; renderRuns(); }
 
 const LOOPS = [[loadSystem, 5000], [loadOllama, 5000], [loadTasks, 10000], [loadRecordings, 4000], [loadClaude, 30000], [loadRuns, 15000]];
@@ -902,6 +978,9 @@ document.addEventListener('click', async ev => {
     case 'claude-more': S.claudeLimit += 20; renderClaude(); break;
     case 'runs-all': S.runsAll = !S.runsAll; renderRuns(); break;
     case 'rec-pick': $('#rec-file').click(); break;
+    case 'vm-open': openVmDlg(); break;
+    case 'vm-start': vmDecide('start'); break;
+    case 'vm-skip': vmDecide('skip'); break;
     case 'rec-open': openRecording(d.id); break;
     case 'rec-tab': S.recEdit = null; recPane(d.tab); break;
     case 'seek': {

@@ -97,15 +97,51 @@ def _file(task, path, exclude=None):
     return max(files, key=lambda f: f.stat().st_mtime) if files else _cwd(task) / path
 
 
+_INTERPRETERS = re.compile(r"^(python[\d.]*w?|node|bash|sh|zsh|perl|ruby|env)$", re.I)     # macOS 的 Python 程序名稱是大寫的 Python
+
+
+def _program(args):
+    """程序實際在跑的程式：執行檔，或直譯器後面的腳本／`-m` 模組。
+    `sh -c "…"`、`python -c "…"` 這類內嵌指令沒有程式可言，回傳空的（避免指令文字裡剛好提到名稱就被當成在跑）。"""
+    parts = args.split()
+    if not parts:
+        return []
+    out = [parts[0]]
+    if _INTERPRETERS.match(os.path.basename(parts[0])):
+        rest = iter(parts[1:])
+        for tok in rest:
+            if tok == "-c":
+                return []
+            if tok == "-m":
+                out.append(next(rest, ""))
+                break
+            if not tok.startswith("-") and "=" not in tok:
+                out.append(tok)
+                break
+    return out
+
+
+def _find_process(pattern):
+    """找出「程式本身」符合 pattern（正規表示式）的程序，回傳 PID。
+    不用 `pgrep -f`：它比對整行指令，別的工作執行 `pgrep -f mlx_vlm.train`、grep 或 shell 指令時也會被算成在跑。"""
+    try:
+        r = subprocess.run(["ps", "-axo", "pid=,args="], capture_output=True, text=True, timeout=5)
+    except Exception:
+        return None
+    rx = re.compile(pattern)
+    for line in r.stdout.splitlines():
+        pid, _, args = line.strip().partition(" ")
+        if not pid.isdigit() or int(pid) == os.getpid():
+            continue
+        if any(rx.search(x) for x in _program(args.strip())):
+            return int(pid)
+    return None
+
+
 def running_pid(task):
     proc = (task.get("running") or {}).get("process")
     if proc:                                     # 用程序名稱判斷（沒有 PID 檔的工作，例如模型訓練）
-        try:
-            r = subprocess.run(["pgrep", "-f", proc], capture_output=True, text=True, timeout=5)
-            pids = [int(x) for x in r.stdout.split() if x.strip().isdigit() and int(x) != os.getpid()]
-            return pids[0] if pids else None
-        except Exception:
-            return None
+        return _find_process(proc)
     pidfile = (task.get("running") or {}).get("pidfile")
     if pidfile:
         try:

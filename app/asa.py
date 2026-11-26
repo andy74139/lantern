@@ -16,7 +16,7 @@ STATUSES = ("todo", "studying", "passed", "waived")
 # 預設的 ASA 項目（SOA 會調整，請對照官網；頁面上可以自由增刪）
 DEFAULT_REQS = [
     ("Exam P", "exam"), ("Exam FM", "exam"), ("Exam FAM", "exam"), ("Exam SRM", "exam"), ("Exam PA", "exam"),
-    ("Exam ALTAM（或 ASTAM）", "exam"), ("ATPA", "exam"),
+    ("Exam ALTAM", "exam"), ("ATPA", "exam"),
     ("VEE 數理統計", "vee"), ("VEE 經濟", "vee"), ("VEE 會計與財務", "vee"),
     ("FAP（Fundamentals of Actuarial Practice）", "course"), ("APC（專業操守課程）", "course"),
 ]

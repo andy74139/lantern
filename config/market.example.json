@@ -1,0 +1,37 @@
+{
+  "_說明": "複製成 market.json 再修改。symbol 用 Yahoo Finance 的代號：台股加 .TW（上櫃 .TWO），美股直接寫代號。news 的 query 是 Google 新聞的搜尋字，可以用 OR。 每一檔可以加 ref（參考指標，例如槓桿 ETF 對應的原型 ETF 或指數），會在下面用小卡片顯示。",
+  "symbols": [
+    {
+      "symbol": "0050.TW",
+      "name": "元大台灣50",
+      "ref": {
+        "symbol": "^TWII",
+        "name": "加權指數"
+      }
+    },
+    {
+      "symbol": "QQQ",
+      "name": "那斯達克 100",
+      "ref": {
+        "symbol": "^NDX",
+        "name": "那斯達克 100 指數"
+      }
+    },
+    {
+      "symbol": "GLD",
+      "name": "黃金"
+    }
+  ],
+  "news": [
+    {
+      "key": "ai",
+      "title": "AI",
+      "query": "AI OR 人工智慧 OR 生成式AI"
+    },
+    {
+      "key": "finance",
+      "title": "財經",
+      "query": "台股 OR 美股 OR 股市 OR 財經"
+    }
+  ]
+}

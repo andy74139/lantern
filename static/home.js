@@ -237,6 +237,12 @@ function dueLabel(t) {
 // ---------- 待辦：分頁、清單、搜尋 ----------
 const lists = () => (H.todos && H.todos.lists) || [];
 const effList = t => t.list_id || (lists()[0] || {}).id || '';
+// 看板上的左右順序（存在這台電腦）；lists() 本身維持 Google 的順序，第一個是預設清單
+const boardLists = () => {
+  const o = (H.todos && H.todos.list_order) || [], L = lists();
+  const pos = L0 => { const i = o.indexOf(L0.id); return i < 0 ? 1000 + L.indexOf(L0) : i; };
+  return [...L].sort((a, b) => pos(a) - pos(b));
+};
 const listTitle = id => (lists().find(x => x.id === id) || {}).title || '';
 const enc = encodeURIComponent;
 
@@ -409,7 +415,7 @@ function openMenu(btn, id) {
     ${t.due_date ? `<button role="menuitem" data-act="todo-clear-date" data-id="${esc(id)}">清除日期</button>` : ''}
     <hr>` : ''}
     <button role="menuitem" data-act="todo-set" data-id="${esc(id)}" data-field="pinned" data-value="${t.pinned ? '' : '1'}">${t.pinned ? '取消釘選' : '★ 釘選在最上面'}</button>
-    ${lists().length > 1 ? lists().filter(L => L.id !== effList(t)).map(L => `<button role="menuitem" data-act="todo-set" data-id="${esc(id)}" data-field="list_id" data-value="${esc(L.id)}">移到「${esc(L.title)}」</button>`).join('') : ''}
+    ${lists().length > 1 ? boardLists().filter(L => L.id !== effList(t)).map(L => `<button role="menuitem" data-act="todo-set" data-id="${esc(id)}" data-field="list_id" data-value="${esc(L.id)}">移到「${esc(L.title)}」</button>`).join('') : ''}
     <button role="menuitem" data-act="todo-edit" data-id="${esc(id)}">編輯…</button>
     <hr>
     <button role="menuitem" class="danger" data-act="todo-del" data-id="${esc(id)}">刪除</button>`;
@@ -427,7 +433,7 @@ async function editTodo(id) {
   const t = H.todos.todos.find(x => x.id === id);
   if (!t) return;
   const opts = [['', '不重複'], ...Object.entries(REPEAT_LABEL)].map(([v, l]) => `<option value="${v}" ${(t.repeat || '') === v ? 'selected' : ''}>${l}</option>`).join('');
-  const listSel = lists().length > 1 ? `<div class="field"><label for="te-list">清單</label><select id="te-list" data-input="list_id">${lists().map(L => `<option value="${esc(L.id)}" ${effList(t) === L.id ? 'selected' : ''}>${esc(L.title)}</option>`).join('')}</select></div>` : '';
+  const listSel = lists().length > 1 ? `<div class="field"><label for="te-list">清單</label><select id="te-list" data-input="list_id">${boardLists().map(L => `<option value="${esc(L.id)}" ${effList(t) === L.id ? 'selected' : ''}>${esc(L.title)}</option>`).join('')}</select></div>` : '';
   const body = `
     <div class="field"><label for="te-title">待辦事項</label><input type="text" id="te-title" data-input="title" value="${esc(t.title)}"></div>
     <div class="field-row">
@@ -813,56 +819,25 @@ document.addEventListener('click', async ev => {
 
 // ---------- 頁面：首頁／AI 工作 ----------
 // 開機看的是「首頁」（行程、待辦、ASA）；AI 相關的監控與操作放在「AI 工作」。網址 #ai 或 AI 區塊的錨點會直接開 AI 工作。
-const pageOf = el => (el.closest('.pg-ai') ? 'ai' : 'home');
+const PAGES = ['home', 'ai', 'market'];
+const pageOf = el => (el.closest('.pg-ai') ? 'ai' : el.closest('.pg-market') ? 'market' : 'home');
 function setPage(pg, toTop = true) {
   if (document.body.dataset.page === pg) { if (toTop) scrollTo({ top: 0 }); return; }
   document.body.dataset.page = pg;
   document.querySelectorAll('.pagetab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.page === pg)));
-  document.querySelectorAll('#toc [data-page-link]').forEach(a => a.classList.toggle('cur', a.dataset.pageLink === pg));
-  history.replaceState(null, '', pg === 'ai' ? '#ai' : location.pathname + location.search);
+  history.replaceState(null, '', pg === 'home' ? location.pathname + location.search : '#' + pg);
   if (toTop) scrollTo({ top: 0 });
   document.dispatchEvent(new CustomEvent('pagechange', { detail: pg }));
 }
 (() => {
-  const h = location.hash.slice(1), el = h && h !== 'ai' && document.getElementById(h);
-  setPage(h === 'ai' || (el && pageOf(el) === 'ai') ? 'ai' : 'home', false);
+  const h = location.hash.slice(1), el = h && !PAGES.includes(h) && document.getElementById(h);
+  setPage(PAGES.includes(h) ? h : el ? pageOf(el) : 'home', false);
   if (el) requestAnimationFrame(() => el.scrollIntoView());
+  addEventListener('hashchange', () => { const p = location.hash.slice(1); if (PAGES.includes(p)) setPage(p); });
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-act="page"]');
     if (b) setPage(b.dataset.page);
   });
-})();
-
-// ---------- 目錄 ----------
-(() => {
-  const toc = $('#toc'), links = [...toc.querySelectorAll('a[href^="#"]')];
-  const setOpen = open => { toc.classList.toggle('open', open); toc.querySelector('.toc-btn').setAttribute('aria-expanded', String(open)); };
-  toc.addEventListener('click', e => {
-    if (e.target.closest('[data-act="toc-toggle"]')) { setOpen(!toc.classList.contains('open')); return; }
-    const a = e.target.closest('a');
-    if (a) {
-      e.preventDefault();
-      setOpen(false);
-      const id = a.getAttribute('href').slice(1);
-      if (id === 'home' || id === 'ai') { setPage(id); return; }
-      const el = document.getElementById(id);
-      if (!el) return;
-      setPage(pageOf(el), false);                                   // 另一頁的區塊：先切換頁面再捲過去
-      el.scrollIntoView();
-      links.forEach(x => x.classList.toggle('on', x === a));        // 並排的區塊（Ollama／Claude）以點的那個為準
-      hold = Date.now() + 1200;
-    }
-  });
-  document.addEventListener('click', e => { if (!e.target.closest('#toc')) setOpen(false); });
-  const seen = new Map();
-  let hold = 0;
-  const io = new IntersectionObserver(entries => {
-    for (const en of entries) seen.set(en.target.id, en.isIntersecting ? en.boundingClientRect.top : null);
-    const visible = [...seen.entries()].filter(([, top]) => top !== null).sort((a, b) => a[1] - b[1]);
-    const cur = visible.length ? visible[0][0] : null;
-    if (cur && Date.now() > hold) links.forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + cur));
-  }, { rootMargin: '-80px 0px -55% 0px' });
-  links.forEach(a => { const el = document.getElementById(a.getAttribute('href').slice(1)); if (el) io.observe(el); });
 })();
 
 // ---------- 程式更新後自動重新整理 ----------
@@ -1026,13 +1001,13 @@ function cardHTML(t, td) {
 
 function boardHTML() {
   const td = ymd(new Date());
-  const cols = lists().length ? lists() : [{ id: '', title: '我的待辦' }];
+  const cols = lists().length ? boardLists() : [{ id: '', title: '我的待辦' }];
   const all = H.todos.todos;
   return `<div class="board">${cols.map(c => {
     const items = all.filter(t => t.status === 'open' && (effList(t) || '') === c.id).sort((a, b) => sortKey(a) - sortKey(b));
     const doneN = all.filter(t => t.status === 'done' && (effList(t) || '') === c.id).length;
-    return `<section class="kcol" aria-label="${esc(c.title)}">
-      <header class="kcol-head"><span class="kcol-title" title="${esc(c.title)}">${esc(c.title)}</span><span class="muted small">${items.length}</span>
+    return `<section class="kcol" data-col="${esc(c.id)}" aria-label="${esc(c.title)}">
+      <header class="kcol-head" ${c.id && cols.length > 1 ? 'draggable="true"' : ''}><span class="kcol-title" title="${esc(c.title)}">${esc(c.title)}</span><span class="muted small">${items.length}</span>
         ${c.id ? `<button class="icon more" data-act="col-menu" data-list="${esc(c.id)}" aria-label="清單動作" aria-haspopup="menu">⋯</button>` : ''}</header>
       <ul class="kcol-body" data-list="${esc(c.id)}">${items.map(t => cardHTML(t, td)).join('')}</ul>
       <form class="kcol-add" data-list="${esc(c.id)}" autocomplete="off"><input type="text" placeholder="＋ 新增（可寫「明天下午3點」）" aria-label="新增到 ${esc(c.title)}"></form>
@@ -1051,7 +1026,10 @@ function openColMenu(btn, lid) {
   if (!L) return;
   const m = document.createElement('div');
   m.id = 'td-menu'; m.className = 'menu'; m.setAttribute('role', 'menu'); m.dataset.for = 'col:' + lid;
+  const bl = boardLists(), at = bl.findIndex(x => x.id === lid);
   m.innerHTML = `<button role="menuitem" data-act="list-rename" data-list="${esc(lid)}">重新命名…</button>
+    ${at > 0 ? `<button role="menuitem" data-act="list-move" data-dir="-1" data-list="${esc(lid)}">← 往左移</button>` : ''}
+    ${at < bl.length - 1 ? `<button role="menuitem" data-act="list-move" data-dir="1" data-list="${esc(lid)}">往右移 →</button>` : ''}
     ${lists()[0].id === lid ? '' : `<button role="menuitem" class="danger" data-act="list-delete" data-list="${esc(lid)}">刪除這個清單…</button>`}`;
   document.body.append(m);
   const r = btn.getBoundingClientRect();
@@ -1066,6 +1044,45 @@ async function listDialog(title, value = '') {
      <p class="muted small">會同步建立／修改 Google Tasks 的清單。</p>`);
   return ok ? dlgValues.name.trim() : null;
 }
+
+async function saveListOrder(ids) {
+  const before = H.todos.list_order;
+  H.todos.list_order = ids;
+  try { await api('/api/todos/lists/order', { ids }); } catch (e) { H.todos.list_order = before; toast(e.message, true); }
+}
+
+// 拖拉清單的標題列：整欄左右移動。要在卡片的拖拉處理之前註冊，dragend 才能先處理、不讓卡片那邊重新載入
+const CDRAG = { el: null, from: '' };
+const colIds = () => [...document.querySelectorAll('#todo-list .kcol[data-col]')].map(c => c.dataset.col).filter(Boolean);
+document.addEventListener('dragstart', e => {
+  const h = e.target.closest && e.target.closest('.kcol-head[draggable="true"]');
+  if (!h) return;
+  closeMenu();
+  CDRAG.el = h.closest('.kcol'); CDRAG.from = colIds().join(); H.dragging = true;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', CDRAG.el.dataset.col);
+  try { e.dataTransfer.setDragImage(CDRAG.el, 20, 16); } catch { /* 舊瀏覽器 */ }
+  requestAnimationFrame(() => CDRAG.el && CDRAG.el.classList.add('dragging'));
+});
+document.addEventListener('dragover', e => {
+  if (!CDRAG.el) return;
+  const board = CDRAG.el.parentNode;
+  if (!board.contains(e.target)) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+  const cols = [...board.querySelectorAll('.kcol[data-col]:not(.dragging)')];
+  const before = cols.find(c => { const r = c.getBoundingClientRect(); return e.clientX < r.left + r.width / 2; }) || board.querySelector('.kcol-new');
+  if (CDRAG.el.nextElementSibling !== before) board.insertBefore(CDRAG.el, before);
+});
+document.addEventListener('drop', e => { if (CDRAG.el) e.preventDefault(); });
+document.addEventListener('dragend', async e => {
+  if (!CDRAG.el) return;
+  e.stopImmediatePropagation();
+  CDRAG.el.classList.remove('dragging');
+  CDRAG.el = null; H.dragging = false;
+  const ids = colIds();
+  if (ids.join() !== CDRAG.from) await saveListOrder(ids);
+  renderTodos();
+});
 
 // 拖拉：看板的卡片（換欄＝換清單、上下＝排序），以及清單檢視拖到「今天／明天／沒有期限」
 const DRAG = { id: null, ph: null };
@@ -1101,7 +1118,7 @@ document.addEventListener('dragstart', e => {
 document.addEventListener('dragend', () => { dragCleanup(); safe(loadTodos); });
 document.addEventListener('dragover', e => {
   if (!DRAG.id) return;
-  const body = e.target.closest('.kcol-body');
+  const col = e.target.closest('.kcol[data-col]'), body = col && col.querySelector('.kcol-body');
   if (body) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; dropPlaceholder(body, e.clientY); return; }
   const grp = e.target.closest('.td-group[data-drop]');
   document.querySelectorAll('.drop-on').forEach(x => { if (x !== grp) x.classList.remove('drop-on'); });
@@ -1110,7 +1127,7 @@ document.addEventListener('dragover', e => {
 document.addEventListener('drop', async e => {
   if (!DRAG.id) return;
   const id = DRAG.id, t = H.todos.todos.find(x => x.id === id);
-  const body = e.target.closest('.kcol-body'), grp = e.target.closest('.td-group[data-drop]');
+  const col = e.target.closest('.kcol[data-col]'), body = col && col.querySelector('.kcol-body'), grp = e.target.closest('.td-group[data-drop]');
   if (!t || (!body && !grp)) return;
   e.preventDefault();
   let data = null, msg = null;
@@ -1161,6 +1178,15 @@ document.addEventListener('click', async ev => {
       if (!name) break;
       try { await api('/api/todos/lists', { title: name }); toast(`已新增「${name}」`); } catch (e) { toast(e.message, true); }
       safe(loadTodos);
+      break;
+    }
+    case 'list-move': {
+      closeMenu();
+      const ids = boardLists().map(x => x.id), i = ids.indexOf(d.list), j = i + Number(d.dir);
+      if (i < 0 || j < 0 || j >= ids.length) break;
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+      await saveListOrder(ids);
+      renderTodos();
       break;
     }
     case 'list-rename': {
@@ -1404,7 +1430,6 @@ document.addEventListener('dragend', async e => {
     if (sec) return clean(sec.id);
     if (el.closest('#music-dock')) return 'music';
     if (el.closest('dialog')) return 'dialog';
-    if (el.closest('#toc')) return 'toc';
     if (el.closest('header')) return 'header';
     if (el.closest('.pagetabs')) return 'pagetabs';
     return 'other';

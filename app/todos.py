@@ -125,7 +125,7 @@ def list_all():
     for r in rows:
         r["source"] = json.loads(r["source"]) if r["source"] else None
     lists = db.query("select id, title from todo_lists order by position")
-    return {"todos": rows, "sync": sync_status(), "lists": lists}
+    return {"todos": rows, "sync": sync_status(), "lists": lists, "list_order": _kv("list_order", [])}
 
 
 def create(data, source=None):
@@ -290,6 +290,19 @@ def delete_list(lid):
     db.execute("delete from todos where list_id=?", (lid,))       # 只剩已完成的，Google 那邊也一起刪了
     db.execute("delete from todo_lists where id=?", (lid,))
     return {"lists": db.query("select id, title from todo_lists order by position")}
+
+
+def set_list_order(ids):
+    """看板上清單的左右順序。Google Tasks 沒有排序清單的功能，所以只存在這台電腦；
+    lists 本身維持 Google 的順序（第一個是預設清單）。"""
+    known = {r["id"] for r in db.query("select id from todo_lists")}
+    seen, out = set(), []
+    for i in ids or []:
+        if isinstance(i, str) and i in known and i not in seen:
+            seen.add(i)
+            out.append(i)
+    _set_kv("list_order", out)
+    return {"list_order": out}
 
 
 # ---------------- 和 Google Tasks 同步 ----------------

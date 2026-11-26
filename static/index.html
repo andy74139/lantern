@@ -13,26 +13,11 @@
   <div id="chips" class="chips"></div>
 </header>
 
-<nav id="toc" class="toc" aria-label="目錄">
-  <button class="toc-btn" data-act="toc-toggle" aria-expanded="false" aria-controls="toc-list">☰ 目錄</button>
-  <div id="toc-list" class="toc-list">
-    <a href="#home" class="toc-group-link" data-page-link="home">首頁</a>
-    <a href="#sec-week">行程</a>
-    <a href="#sec-todo">待辦事項</a>
-    <a href="#sec-asa">ASA 進度</a>
-    <a href="#ai" class="toc-group-link" data-page-link="ai">AI 工作</a>
-    <a href="#sec-rec">錄音整理</a>
-    <a href="#sec-tasks">常用工作</a>
-    <a href="#sec-ollama">Ollama</a>
-    <a href="#sec-claude">Claude 對話</a>
-    <a href="#sec-runs">最近執行</a>
-  </div>
-</nav>
-
 <main>
   <div class="topbar">
     <div class="pagetabs" role="tablist" aria-label="頁面">
       <button class="pagetab" role="tab" data-act="page" data-page="home" aria-selected="true">首頁</button>
+      <button class="pagetab" role="tab" data-act="page" data-page="market" aria-selected="false">市場</button>
       <button class="pagetab" role="tab" data-act="page" data-page="ai" aria-selected="false">AI 工作<span id="ai-badge" class="pt-badge" hidden></span></button>
     </div>
     <section class="kb-bar" id="sec-kb" aria-label="知識庫">
@@ -84,6 +69,7 @@
   <section id="sec-rec" class="pg-ai">
     <div class="sec-head"><h2>錄音整理</h2><span class="muted small">轉成逐字稿並整理重點，全部在本機處理</span><button class="btn sm push" data-act="rec-vocab" title="專有名詞提示與自動修正字典">詞彙與修正</button></div>
     <div id="rec-banner"></div>
+    <div id="vm-bar" class="vm-bar small"></div>
     <div class="rec-grid">
       <div id="rec-drop" class="drop">
         <strong>把錄音或影片拖到這裡</strong>
@@ -120,7 +106,7 @@
       <details class="panel fold">
         <summary>下載新模型</summary>
         <form id="pull-form" class="row">
-          <input id="pull-name" type="text" placeholder="模型名稱，例如 qwen2.5:7b" autocomplete="off" spellcheck="false">
+          <input id="pull-name" type="text" placeholder="模型名稱，例如 gemma4:12b" autocomplete="off" spellcheck="false">
           <button class="btn" type="submit" id="pull-btn">下載</button>
         </form>
         <div id="pull-progress" class="small"></div>
@@ -153,6 +139,24 @@
   <section id="sec-runs" class="pg-ai">
     <div class="sec-head"><h2>最近執行</h2></div>
     <div id="runs" class="panel"></div>
+  </section>
+  <section id="sec-quotes" class="pg-market" aria-label="股價">
+    <div id="mk-quotes" class="mk-quotes"><p class="muted small">載入中…</p></div>
+  </section>
+
+  <section id="sec-chart" class="card pg-market" aria-label="走勢圖">
+    <div class="card-head mk-head">
+      <h2 id="mk-title">走勢</h2>
+      <span id="mk-range-chg" class="mk-range-chg"></span>
+      <div id="mk-ranges" class="mk-seg" role="group" aria-label="區間"></div>
+    </div>
+    <div id="mk-mas" class="mk-mas" role="group" aria-label="均線"></div>
+    <div id="mk-chart" class="mk-chart"></div>
+    <p id="mk-foot" class="muted small"></p>
+  </section>
+
+  <section id="sec-news" class="pg-market" aria-label="新聞">
+    <div id="mk-news" class="mk-news"><p class="muted small">載入中…</p></div>
   </section>
 </main>
 
@@ -189,5 +193,6 @@
 
 <script src="/static/app.js"></script>
 <script src="/static/home.js"></script>
+<script src="/static/market.js"></script>
 </body>
 </html>
